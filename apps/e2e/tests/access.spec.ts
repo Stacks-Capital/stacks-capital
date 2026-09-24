@@ -34,7 +34,7 @@ test("every screen passes an accessibility scan with no serious or critical issu
     expect(
       serious.map(
         (violation) =>
-          `${tab}: ${violation.id} - ${violation.nodes.map((n) => n.html + " => " + n.failureSummary).join("; ")}`,
+          `${tab}: ${violation.id} - ${violation.nodes.map((n) => `${n.html} => ${n.failureSummary}`).join("; ")}`,
       ),
       `${tab} should have no serious accessibility issues`,
     ).toEqual([]);
@@ -111,7 +111,7 @@ test("canonical states render appropriately across views", async ({ page }) => {
   // 1. Signed-out Empty state on Overview, Swap, and Deposit BTC
   await expect(page.getByText("Connect a wallet to see what it holds.")).toBeVisible();
   await page.getByRole("navigation").getByRole("button", { name: "Swap", exact: true }).click();
-  await expect(page.getByText("Connect a wallet and sign in to swap.")).toBeVisible();
+  await expect(page.getByText("Connect a wallet and sign in to compare swap routes.")).toBeVisible();
   await page.getByRole("navigation").getByRole("button", { name: "Deposit BTC", exact: true }).click();
   await expect(page.getByText("Connect a wallet and sign in to deposit or withdraw Bitcoin.")).toBeVisible();
 
