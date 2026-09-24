@@ -100,11 +100,13 @@ export {
 export { type ConnectedWallet, type MessageSigner, type SignInResult, signIn } from "./session.ts";
 export {
   askWallet,
+  askWalletCall,
   assertWalletAllowed,
   type WalletAnswer,
   encodeArgument,
   encodePostCondition,
   type PostConditionRequest,
+  toWalletCallRequest,
   toWalletRequest,
   type WalletRequest,
 } from "./signing.ts";
