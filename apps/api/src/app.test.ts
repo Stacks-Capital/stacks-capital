@@ -43,11 +43,39 @@ describe("request validation", () => {
     const other = encodeCursor("capabilities", ["zest.sbtc.vault", "supply"]);
     await expectError(`/v1/markets?network=mainnet&cursor=${other}`, 400);
   });
+
+  it("rejects unsupported, identical, or zero-value swap requests before provider access", async () => {
+    const valid = {
+      network: "mainnet",
+      owner: "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR",
+      inputAsset: "stacks:mainnet:native:stx",
+      outputAsset: "stacks:mainnet:contract:SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token:sbtc-token",
+      amount: "1000000",
+      slippageBps: 50,
+    };
+    const post = (body: object) => ({
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    assert.equal(
+      (await expectError("/v1/swaps/quotes", 400, post({ ...valid, inputAsset: "unknown" }))).code,
+      "INVALID_REQUEST",
+    );
+    assert.equal(
+      (await expectError("/v1/swaps/quotes", 400, post({ ...valid, outputAsset: valid.inputAsset }))).code,
+      "INVALID_REQUEST",
+    );
+    assert.equal((await expectError("/v1/swaps/quotes", 400, post({ ...valid, amount: "0" }))).code, "INVALID_REQUEST");
+    assert.equal((await expectError("/v1/swaps/markets?network=testnet", 400)).code, "INVALID_REQUEST");
+    assert.equal((await expectError("/v1/swaps/markets", 400)).code, "INVALID_REQUEST");
+  });
 });
 
 describe("credentials", () => {
   it("are required on every data route", async () => {
     assert.equal((await expectError("/v1/markets?network=mainnet", 401)).code, "UNAUTHORIZED");
+    assert.equal((await expectError("/v1/swaps/markets?network=mainnet", 401)).code, "UNAUTHORIZED");
     assert.equal((await expectError("/v1/workflows/wf_1?network=mainnet", 401)).code, "UNAUTHORIZED");
     const quoteBody = JSON.stringify({
       network: "mainnet",
@@ -61,6 +89,24 @@ describe("credentials", () => {
         await expectError("/v1/quotes", 401, {
           method: "POST",
           body: quoteBody,
+          headers: { "content-type": "application/json" },
+        })
+      ).code,
+      "UNAUTHORIZED",
+    );
+    const swapBody = JSON.stringify({
+      network: "mainnet",
+      owner: "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR",
+      inputAsset: "stacks:mainnet:native:stx",
+      outputAsset: "stacks:mainnet:contract:SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token:sbtc-token",
+      amount: "1000000",
+      slippageBps: 50,
+    });
+    assert.equal(
+      (
+        await expectError("/v1/swaps/quotes", 401, {
+          method: "POST",
+          body: swapBody,
           headers: { "content-type": "application/json" },
         })
       ).code,
@@ -129,6 +175,8 @@ describe("OpenAPI document", () => {
       "/v1/prices",
       "/v1/prices/valuations",
       "/v1/quotes",
+      "/v1/swaps/markets",
+      "/v1/swaps/quotes",
       "/v1/webhooks/endpoints",
       "/v1/webhooks/endpoints/{id}",
       "/v1/workflows",
