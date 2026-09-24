@@ -4,7 +4,6 @@ import { type CapitalClient, CLIENT_ID_HEADER, type ClientOptions, createClient 
 import {
   CapitalApiError,
   CapitalConfigError,
-  CapitalFinancialError,
   CapitalTransportError,
   errorClassOf,
   isCapitalApiError,
@@ -237,6 +236,54 @@ describe("reads", () => {
     assert.equal(calls[0]?.url, `${BASE}/v1/earn/performance?network=mainnet&owner=SP1&marketId=zest.sbtc.vault`);
     assert.equal(res.data.items[0]?.attribution.earnedYield, "5000000");
     assert.equal(res.data.items[0]?.forward30dProjection.rateStatus, "verified");
+  });
+});
+
+describe("swap quote comparison", () => {
+  it("reads the live mainnet swap catalog", async () => {
+    const data = {
+      items: [
+        {
+          key: "stx",
+          assetId: "stacks:mainnet:native:stx",
+          symbol: "STX",
+          name: "Stacks",
+          decimals: 6,
+          providers: ["bitflow"],
+        },
+      ],
+      sources: {
+        bitflow: { status: "ok", count: 1, reason: null },
+        velar: { status: "unavailable", count: 0, reason: "timeout" },
+        alex: { status: "ok", count: 0, reason: null },
+      },
+    };
+    const { client, calls } = build([envelope(data)]);
+    const result = await client.swapMarkets();
+    assert.deepEqual(result.data, data);
+    assert.equal(calls[0]?.url, `${BASE}/v1/swaps/markets?network=mainnet`);
+  });
+
+  it("posts the exact asset identities and does not retry the provider comparison", async () => {
+    const data = { assets: [], offers: [], unavailable: [{ provider: "alex", reason: "pair unavailable" }] };
+    const { client, calls } = build([envelope(data)], { sessionToken: "ses_1.secret" });
+    const result = await client.swapQuotes({
+      inputAsset: "stacks:mainnet:native:stx",
+      outputAsset: "stacks:mainnet:contract:SM3.sbtc-token:sbtc-token",
+      amount: "1000000",
+      slippageBps: 50,
+      owner: "SP_OWNER",
+    });
+    assert.deepEqual(result.data, data);
+    assert.equal(calls[0]?.url, `${BASE}/v1/swaps/quotes`);
+    assert.deepEqual(JSON.parse(calls[0]?.body ?? "{}"), {
+      network: "mainnet",
+      inputAsset: "stacks:mainnet:native:stx",
+      outputAsset: "stacks:mainnet:contract:SM3.sbtc-token:sbtc-token",
+      amount: "1000000",
+      slippageBps: 50,
+      owner: "SP_OWNER",
+    });
   });
 });
 
