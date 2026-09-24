@@ -112,6 +112,62 @@ export type Plan = {
 };
 
 export type QuotedPlan = { quote: Quote; plan: Plan };
+
+export type SwapProvider = "bitflow" | "velar" | "alex";
+export type SwapAsset = {
+  key: string;
+  assetId: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+  providers: SwapProvider[];
+};
+export type SwapCatalogSource = {
+  status: "ok" | "unavailable";
+  count: number;
+  reason: string | null;
+};
+export type SwapMarketCatalog = {
+  items: SwapAsset[];
+  sources: Record<SwapProvider, SwapCatalogSource>;
+};
+export type SwapWalletPostCondition =
+  | { type: "stx-postcondition"; address: string; condition: "lte" | "eq" | "gte"; amount: string }
+  | { type: "ft-postcondition"; address: string; condition: "lte" | "eq" | "gte"; amount: string; asset: string };
+
+export type SwapWalletCall = {
+  contractId: string;
+  functionName: string;
+  functionArgs: string[];
+  postConditions: SwapWalletPostCondition[];
+  postConditionMode: "deny" | "allow";
+  network: "mainnet";
+};
+
+export type SwapOffer = {
+  provider: SwapProvider;
+  rank: number;
+  status: "executable" | "quote_only";
+  inputAsset: string;
+  outputAsset: string;
+  amountIn: string;
+  amountOut: string;
+  minimumAmountOut: string;
+  fee: AssetAmount | null;
+  priceImpactBps: number | null;
+  route: string[];
+  targetContract: string;
+  observedAt: string;
+  expiresAt: string;
+  evidenceSource: string;
+  executionReason: string;
+  walletCall?: SwapWalletCall;
+};
+export type SwapQuoteComparison = {
+  assets: SwapAsset[];
+  offers: SwapOffer[];
+  unavailable: { provider: SwapProvider; reason: string }[];
+};
 export type StartedWorkflow = { workflowId: string; state: string; nextAction: string; plan: Plan };
 export type SignatureOutcome = {
   state: string;
