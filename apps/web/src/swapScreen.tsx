@@ -1,554 +1,657 @@
-import type { QuotedPlan } from "@stacks-capital/client";
+import type { SwapAsset, SwapOffer, SwapProvider, SwapQuoteComparison } from "@stacks-capital/client";
 import { useCapital, usePrices } from "@stacks-capital/react";
-import {
-  createStacksCapital,
-  parsePlan,
-  parseQuote,
-  type PlanWire,
-  type QuoteWire,
-  type StacksNetwork,
-} from "@stacks-capital/sdk";
+import { useEffect, useState, type ReactNode } from "react";
 import type { WalletId } from "@stacks-capital/wallets";
-import { useEffect, useState } from "react";
 import {
-  askWallet,
-  canApprove,
-  type ConnectedWallet,
-  contractOf,
+  askWalletCall,
   EmptyStateView,
-  explorerTxUrl,
-  FailedDelayedStateView,
   findProvider,
   messageFor,
   Panel,
-  panelState,
-  ReviewStateView,
-  StaleDisputedStateView,
   StateNote,
-  SubmittedStateView,
-  swapView,
-  toWalletRequest,
+  panelState,
+  toWalletCallRequest,
+  type ConnectedWallet,
 } from "@stacks-capital/ui";
-import {
-  CANONICAL_SWAP_ASSETS,
-  formatExpiryCountdown,
-  fromBaseUnits,
-  isQuoteSignable,
-  priceImpactCategory,
-  reconcileSwapAssets,
-  toBaseUnits,
-  verifyMinimumOutputEnforcement,
-} from "./swapState.ts";
+import { fromBaseUnits, toBaseUnits } from "./swapState.ts";
 
-const MARKET_ID = "bitflow.sbtc-usdcx";
+const FALLBACK_ASSETS: readonly SwapAsset[] = [
+  {
+    key: "stx",
+    assetId: "stacks:mainnet:native:stx",
+    symbol: "STX",
+    name: "Stacks",
+    decimals: 6,
+    providers: ["bitflow", "velar", "alex"],
+  },
+  {
+    key: "sbtc",
+    assetId: "stacks:mainnet:contract:SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token:sbtc-token",
+    symbol: "sBTC",
+    name: "Canonical sBTC",
+    decimals: 8,
+    providers: ["bitflow", "velar"],
+  },
+  {
+    key: "usdcx",
+    assetId: "stacks:mainnet:contract:SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx:usdcx-token",
+    symbol: "USDCx",
+    name: "USDCx",
+    decimals: 6,
+    providers: ["bitflow", "velar"],
+  },
+  {
+    key: "alex-abtc",
+    assetId: "stacks:mainnet:contract:SP2XD7417HGPRTREMKF748VNEQPDRR0RMANB7X1NK.token-abtc:bridged-btc",
+    symbol: "aBTC",
+    name: "ALEX bridged BTC",
+    decimals: 8,
+    providers: ["alex"],
+  },
+];
 
-type Direction = "sbtc_to_usdcx" | "usdcx_to_sbtc";
+function providerName(provider: SwapProvider): string {
+  if (provider === "bitflow") return "Bitflow";
+  if (provider === "velar") return "Velar";
+  return "ALEX";
+}
 
-type SubmissionOutcome = {
-  workflowId: string;
-  state: string;
-  nextAction: string;
-  txid: string | null;
-  network: StacksNetwork;
-};
+function priceFeedKey(asset: SwapAsset): string | null {
+  if (asset.assetId === "stacks:mainnet:native:stx") return "STX/USD";
+  if (asset.assetId.endsWith(":usdcx-token") || asset.symbol === "USDCx") return "USDC/USD";
+  if (asset.symbol === "sBTC" || asset.symbol === "aBTC") return "BTC/USD";
+  return null;
+}
+
+function amount(quantity: string, asset: SwapAsset, maximumFractionDigits = 8): string {
+  const display = fromBaseUnits(quantity, asset.decimals);
+  const numeric = Number(display);
+  if (!Number.isFinite(numeric)) return `${display} ${asset.symbol}`;
+  return `${numeric.toLocaleString(undefined, { maximumFractionDigits })} ${asset.symbol}`;
+}
+
+function observedAge(observedAt: string, now: number): string {
+  const seconds = Math.max(0, Math.floor((now - Date.parse(observedAt)) / 1000));
+  return seconds < 2 ? "just now" : `${seconds}s ago`;
+}
+
+function assetById(assets: readonly SwapAsset[], assetId: string, fallback: SwapAsset): SwapAsset {
+  return assets.find((item) => item.assetId === assetId) ?? fallback;
+}
+
+function optionLabel(asset: SwapAsset, assets: readonly SwapAsset[]): string {
+  const clashes = assets.filter((item) => item.symbol === asset.symbol).length;
+  if (clashes <= 1) return asset.symbol;
+  const contract = asset.assetId.split(":contract:")[1]?.split(":")[0]?.split(".")[1];
+  return contract === undefined ? asset.symbol : `${asset.symbol} · ${contract}`;
+}
+
+function unavailableReason(reason: string): string {
+  if (/asyncIterator|no route/i.test(reason)) return "No route for this pair.";
+  if (/not listed|does not list/i.test(reason)) return "This pair is not listed.";
+  return reason;
+}
 
 export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; signedIn: boolean }) {
   const { client } = useCapital();
   const prices = usePrices({ staleMs: 15_000 });
-
-  const [direction, setDirection] = useState<Direction>("sbtc_to_usdcx");
-  const [displayAmount, setDisplayAmount] = useState<string>("0.01");
-  const [slippageBps, setSlippageBps] = useState<string>("50");
-  const [customSlippage, setCustomSlippage] = useState<boolean>(false);
-  const [quoted, setQuoted] = useState<QuotedPlan | null>(null);
-  const [now, setNow] = useState<Date>(() => new Date());
-  const [submission, setSubmission] = useState<SubmissionOutcome | null>(null);
-  const [busy, setBusy] = useState<boolean>(false);
+  const [assets, setAssets] = useState<SwapAsset[]>([...FALLBACK_ASSETS]);
+  const [marketsNote, setMarketsNote] = useState<string | null>(null);
+  const [inputId, setInputId] = useState(FALLBACK_ASSETS[0]?.assetId ?? "");
+  const [outputId, setOutputId] = useState(FALLBACK_ASSETS[1]?.assetId ?? "");
+  const [inputQuery, setInputQuery] = useState("");
+  const [outputQuery, setOutputQuery] = useState("");
+  const [displayAmount, setDisplayAmount] = useState("1");
+  const [slippageBps, setSlippageBps] = useState(50);
+  const [comparison, setComparison] = useState<SwapQuoteComparison | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<SwapProvider | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [signing, setSigning] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [signedNote, setSignedNote] = useState<string | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
 
-  const network: StacksNetwork = (wallet?.network as StacksNetwork) || "mainnet";
-  const storageKey = wallet ? `stacks_capital_swap_workflow_${network}_${wallet.address}` : null;
-
-  // Restore pending workflow on mount or wallet change
   useEffect(() => {
-    if (!storageKey) return;
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        const parsed = JSON.parse(saved) as SubmissionOutcome;
-        if (parsed.workflowId) {
-          setSubmission(parsed);
-        }
-      }
-    } catch {
-      // Ignore storage read failures
-    }
-  }, [storageKey]);
-
-  // Persist submission state updates
-  useEffect(() => {
-    if (!storageKey) return;
-    if (submission) {
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(submission));
-      } catch {
-        // Ignore storage write failures
-      }
-    }
-  }, [storageKey, submission]);
-
-  // Real-time quote expiry clock
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
+    const timer = setInterval(() => setClock(Date.now()), 1_000);
     return () => clearInterval(timer);
   }, []);
 
-  const inputAsset = direction === "sbtc_to_usdcx" ? CANONICAL_SWAP_ASSETS.sbtc : CANONICAL_SWAP_ASSETS.usdcx;
-  const outputAsset = direction === "sbtc_to_usdcx" ? CANONICAL_SWAP_ASSETS.usdcx : CANONICAL_SWAP_ASSETS.sbtc;
+  useEffect(() => {
+    let cancelled = false;
+    void client
+      .swapMarkets()
+      .then((response) => {
+        if (cancelled || response.data.items.length === 0) return;
+        setAssets(response.data.items);
+        const failed = (Object.entries(response.data.sources) as [SwapProvider, { status: string }][])
+          .filter(([, source]) => source.status === "unavailable")
+          .map(([provider]) => providerName(provider));
+        setMarketsNote(
+          failed.length === 0
+            ? `${response.data.items.length} mainnet tokens`
+            : `${response.data.items.length} mainnet tokens. ${failed.join(", ")} catalog unavailable.`,
+        );
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setMarketsNote(messageFor(error).message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
 
-  // Decimal conversion
+  const inputAsset = assetById(assets, inputId, FALLBACK_ASSETS[0] as SwapAsset);
+  const outputAsset = assetById(assets, outputId, FALLBACK_ASSETS[1] as SwapAsset);
+  const best = comparison?.offers[0] ?? null;
+  const selected = comparison?.offers.find((offer) => offer.provider === selectedProvider) ?? best;
+  const expired = selected !== null && Date.parse(selected.expiresAt) <= clock;
   let baseAmount = "0";
-  let inputFormatError: string | null = null;
+  let amountError: string | null = null;
   try {
     baseAmount = toBaseUnits(displayAmount, inputAsset.decimals);
-  } catch (err) {
-    inputFormatError = err instanceof Error ? err.message : "Invalid number";
+    if (baseAmount === "0") amountError = "Enter an amount greater than zero.";
+  } catch (error) {
+    amountError = error instanceof Error ? error.message : "Enter a valid amount.";
   }
 
-  const assetContext = {
-    sentFeed: inputAsset.feedKey,
-    receivedFeed: outputAsset.feedKey,
-    sentDecimals: inputAsset.decimals,
-    receivedDecimals: outputAsset.decimals,
-  };
-
-  const view = quoted === null ? null : swapView(quoted, prices.data?.data.items ?? [], assetContext, now);
-
-  // Asset & Onchain enforcement validations
-  const assetReconciliation = quoted ? reconcileSwapAssets(quoted.quote as QuoteWire, network) : null;
-  const minimumOutputEnforcement =
-    quoted && quoted.plan ? verifyMinimumOutputEnforcement(quoted.quote as QuoteWire, quoted.plan as PlanWire) : null;
-
-  // Strict signability gate (AE1, AE2, AE3)
-  const isSignable =
-    view !== null &&
-    quoted !== null &&
-    canApprove(view, quoted) &&
-    isQuoteSignable(view, quoted, now) &&
-    assetReconciliation?.reconciled === true &&
-    minimumOutputEnforcement?.enforced === true;
-
-  const expiryState = view ? formatExpiryCountdown(view.expiresInSeconds) : null;
-  const impactTier = view ? priceImpactCategory(view.impactBps) : "unknown";
-
-  function handleDirectionToggle() {
-    setDirection((prev) => (prev === "sbtc_to_usdcx" ? "usdcx_to_sbtc" : "sbtc_to_usdcx"));
-    setDisplayAmount(direction === "sbtc_to_usdcx" ? "700" : "0.01");
-    setQuoted(null);
+  function clearQuotes() {
+    setComparison(null);
+    setSelectedProvider(null);
     setProblem(null);
+    setSignedNote(null);
   }
 
-  async function handleRefreshQuote() {
-    if (baseAmount === "0" || inputFormatError !== null) return;
+  function switchAssets() {
+    setInputId(outputAsset.assetId);
+    setOutputId(inputAsset.assetId);
+    setInputQuery("");
+    setOutputQuery("");
+    clearQuotes();
+  }
+
+  async function getQuotes(): Promise<SwapQuoteComparison | null> {
+    if (wallet === null || amountError !== null) return null;
     setBusy(true);
     setProblem(null);
-
     try {
-      const slippageNum = Number.parseInt(slippageBps, 10);
-      if (Number.isNaN(slippageNum) || slippageNum < 0 || slippageNum > 300) {
-        throw new Error("Slippage must be between 0 and 300 basis points (3.0%).");
-      }
-
-      const result = await client.quote({
-        marketId: MARKET_ID,
-        action: "swap",
+      const response = await client.swapQuotes({
+        inputAsset: inputAsset.assetId,
+        outputAsset: outputAsset.assetId,
         amount: baseAmount,
         slippageBps,
-        ...(wallet ? { owner: wallet.address } : {}),
+        owner: wallet.address,
       });
-
-      setQuoted(result.data);
-      setNow(new Date());
+      setComparison(response.data);
+      if (response.data.offers.length === 0) {
+        setProblem("No provider returned a valid quote for this exact asset pair.");
+        return response.data;
+      }
+      return response.data;
     } catch (error) {
       setProblem(messageFor(error).message);
+      return null;
     } finally {
       setBusy(false);
     }
   }
 
-  async function handleApprove() {
-    if (!isSignable || quoted === null || wallet === null) return;
+  useEffect(() => {
+    if (wallet === null || amountError !== null) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void (async () => {
+        setBusy(true);
+        setProblem(null);
+        try {
+          const response = await client.swapQuotes({
+            inputAsset: inputAsset.assetId,
+            outputAsset: outputAsset.assetId,
+            amount: baseAmount,
+            slippageBps,
+            owner: wallet.address,
+          });
+          if (cancelled) return;
+          setComparison(response.data);
+          if (response.data.offers.length === 0) {
+            setProblem("No provider returned a valid quote for this exact asset pair.");
+          }
+        } catch (error) {
+          if (!cancelled) setProblem(messageFor(error).message);
+        } finally {
+          if (!cancelled) setBusy(false);
+        }
+      })();
+    }, 450);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [wallet, client, inputAsset.assetId, outputAsset.assetId, baseAmount, slippageBps, amountError]);
 
-    setBusy(true);
+  async function swapNow() {
+    if (wallet === null || amountError !== null) return;
+    if (comparison === null || expired || selected === null) {
+      await getQuotes();
+      return;
+    }
+    const offer = selected;
+    if (offer.walletCall === undefined) {
+      setProblem(`${providerName(offer.provider)} did not return a signable swap call. Nothing was sent.`);
+      return;
+    }
+    const provider = findProvider(wallet.id as WalletId);
+    if (provider === null) {
+      setProblem(`${wallet.id} is not available any more`);
+      return;
+    }
+    setSigning(true);
     setProblem(null);
-
+    setSignedNote(null);
     try {
-      // Re-verify expiry right before initiation
-      if (new Date(quoted.quote.expiresAt).getTime() <= Date.now()) {
-        throw new Error("Quote expired right before signing. Please request a fresh quote.");
-      }
-
-      const started = await client.startWorkflow({
-        quoteId: quoted.quote.id,
-        idempotencyKey: `idem_${crypto.randomUUID()}`,
-      });
-
-      const step = started.data.plan.steps[0];
-      if (step === undefined) {
-        throw new Error("The plan contains no step to sign.");
-      }
-
-      const provider = findProvider(wallet.id as WalletId);
-      if (provider === null) {
-        throw new Error("The connected wallet provider is unavailable.");
-      }
-
-      const os = createStacksCapital({ network: started.data.plan.network });
-      const validation = os.validate(parsePlan(started.data.plan as PlanWire), parseQuote(quoted.quote as QuoteWire), {
-        sender: wallet.address,
-      });
-
-      const answer = await askWallet(provider, wallet.id as WalletId, toWalletRequest(step, validation), validation);
-
+      const answer = await askWalletCall(provider, wallet.id as WalletId, toWalletCallRequest(offer.walletCall));
       if (answer.kind === "rejected") {
         setProblem(answer.message);
         return;
       }
-
-      const recorded = await client.recordSignature(started.data.workflowId, {
-        stepId: step.id,
-        walletResult: answer.result,
-      });
-
-      const newSubmission: SubmissionOutcome = {
-        workflowId: started.data.workflowId,
-        state: recorded.data.state,
-        nextAction: recorded.data.nextAction,
-        txid: recorded.data.txid,
-        network,
-      };
-
-      setSubmission(newSubmission);
-      setQuoted(null);
+      if (answer.kind === "unknown") {
+        setProblem(answer.result.error);
+        return;
+      }
+      setSignedNote("Signed in your wallet. CapitalOS does not broadcast or reconcile this provider route.");
     } catch (error) {
       setProblem(messageFor(error).message);
     } finally {
-      setBusy(false);
-    }
-  }
-
-  function handleDismissWorkflow() {
-    setSubmission(null);
-    if (storageKey) {
-      try {
-        localStorage.removeItem(storageKey);
-      } catch {
-        // Ignore storage removal errors
-      }
+      setSigning(false);
     }
   }
 
   if (!signedIn || wallet === null) {
     return (
       <Panel title="Swap">
-        <EmptyStateView state={{ kind: "empty", instruction: "Connect a wallet and sign in to swap." }} />
+        <EmptyStateView
+          state={{ kind: "empty", instruction: "Connect a wallet and sign in to swap on the best available route." }}
+        />
       </Panel>
     );
   }
 
-  return (
-    <Panel title="Swap & Route Review">
-      <StateNote state={panelState(prices, prices.data?.context)} onRetry={() => void prices.refresh()} />
+  if (wallet.network !== "mainnet") {
+    return (
+      <Panel title="Swap">
+        <EmptyStateView
+          state={{ kind: "empty", instruction: "Switch your wallet to Stacks mainnet to compare live routes." }}
+        />
+      </Panel>
+    );
+  }
 
-      {/* Active Submission / Recovery Banner */}
-      {submission !== null && (
-        <div className="swap-submission-container">
-          {submission.txid === null ? (
-            <FailedDelayedStateView
-              state={{
-                kind: "failed_delayed",
-                cause:
-                  "The wallet did not return a transaction ID, or the broadcast state is unconfirmed. Nothing is retried automatically.",
-                fundsLocation: `Whether anything was broadcast is unknown. Workflow state: ${submission.state}, ID: ${submission.workflowId}.`,
-                recovery: [
-                  {
-                    type: "support",
-                    label: "Copy workflow ID",
-                    action: () => void navigator.clipboard?.writeText(submission.workflowId),
-                  },
-                ],
+  const inputFeed = priceFeedKey(inputAsset);
+  const outputFeed = priceFeedKey(outputAsset);
+  const inputPrice =
+    inputFeed === null ? undefined : prices.data?.data.items.find((item) => item.feedKey === inputFeed);
+  const outputPrice =
+    outputFeed === null ? undefined : prices.data?.data.items.find((item) => item.feedKey === outputFeed);
+  const venueCount = new Set(assets.flatMap((asset) => asset.providers)).size;
+
+  return (
+    <Panel title="Swap across Stacks">
+      <StateNote state={panelState(prices, prices.data?.context)} onRetry={() => void prices.refresh()} />
+      <div className="swap-integrity-note">
+        CapitalOS compares Bitflow, Velar and ALEX on mainnet and routes through the quote with the highest guaranteed
+        minimum received. A provider failure never removes healthy quotes.
+      </div>
+      {marketsNote !== null && <p className="swap-catalog-note">{marketsNote}</p>}
+
+      <div className="swap-workspace">
+        <section className="swap-market-panel" aria-label="Market snapshot">
+          <div className="swap-market-heading">
+            <div>
+              <span className="eyebrow">Live market snapshot</span>
+              <h3>
+                {inputAsset.symbol} / {outputAsset.symbol}
+              </h3>
+            </div>
+            <span className="swap-live-badge">Mainnet</span>
+          </div>
+          <div className="swap-market-stats">
+            <div>
+              <span>Pay asset</span>
+              <strong>{inputAsset.name}</strong>
+              <small>{inputPrice?.status ?? "price unavailable"}</small>
+            </div>
+            <div>
+              <span>Receive asset</span>
+              <strong>{outputAsset.name}</strong>
+              <small>{outputPrice?.status ?? "price unavailable"}</small>
+            </div>
+            <div>
+              <span>Listed tokens</span>
+              <strong>{assets.length}</strong>
+              <small>
+                {venueCount} venue{venueCount === 1 ? "" : "s"} checked
+              </small>
+            </div>
+            <div>
+              <span>Ranking basis</span>
+              <strong>Min received</strong>
+              <small>after slippage floor</small>
+            </div>
+          </div>
+          <div className="swap-market-empty-chart">
+            <div className="snapshot-bars" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+              <i />
+              <i />
+              <i />
+            </div>
+            <strong>Current observations only</strong>
+            <span>CapitalOS does not synthesize historical price data.</span>
+          </div>
+          <div className="swap-identity-box">
+            <span>Exact receive asset</span>
+            <code>{outputAsset.assetId}</code>
+          </div>
+        </section>
+
+        <section className="swap-composer" aria-label="Swap quote form">
+          <div className="swap-tabs">
+            <button type="button" className="active">
+              Swap
+            </button>
+            <button type="button" disabled>
+              Recurring
+            </button>
+          </div>
+          <AssetField
+            id="swap-input-asset"
+            label="You pay"
+            query={inputQuery}
+            onQuery={setInputQuery}
+            selected={inputAsset}
+            otherId={outputAsset.assetId}
+            assets={assets}
+            onSelect={(assetId) => {
+              setInputId(assetId);
+              clearQuotes();
+            }}
+          >
+            <input
+              aria-label="Swap amount"
+              inputMode="decimal"
+              value={displayAmount}
+              onChange={(event) => {
+                setDisplayAmount(event.target.value);
+                setSignedNote(null);
               }}
             />
-          ) : (
-            <SubmittedStateView
-              state={{
-                kind: "submitted",
-                txId: submission.txid,
-                explorerUrl: explorerTxUrl(submission.txid, submission.network),
-                workflowState: submission.state,
-                nextAction: submission.nextAction,
-              }}
-            />
-          )}
-          <button type="button" className="btn-secondary dismiss-btn" onClick={handleDismissWorkflow}>
-            Start New Swap
+          </AssetField>
+          <small className="swap-amount-hint">{amountError ?? `${baseAmount} base units`}</small>
+
+          <button
+            type="button"
+            className="swap-round-switch"
+            onClick={switchAssets}
+            aria-label="Switch pay and receive assets"
+          >
+            ⇅
           </button>
+
+          <AssetField
+            id="swap-output-asset"
+            label="You receive"
+            query={outputQuery}
+            onQuery={setOutputQuery}
+            selected={outputAsset}
+            otherId={inputAsset.assetId}
+            assets={assets}
+            onSelect={(assetId) => {
+              setOutputId(assetId);
+              clearQuotes();
+            }}
+          >
+            <output>{selected === null ? "—" : fromBaseUnits(selected.amountOut, outputAsset.decimals)}</output>
+          </AssetField>
+          <small className="swap-amount-hint">
+            {selected === null
+              ? busy
+                ? "Finding the best route…"
+                : "Enter an amount to preview the best route"
+              : `Minimum ${amount(selected.minimumAmountOut, outputAsset)}`}
+          </small>
+
+          <div className="swap-slippage-row">
+            <span>Max slippage</span>
+            {[10, 50, 100].map((value) => (
+              <button
+                key={value}
+                type="button"
+                className={slippageBps === value ? "active" : ""}
+                onClick={() => {
+                  setSlippageBps(value);
+                  clearQuotes();
+                }}
+              >
+                {value / 100}%
+              </button>
+            ))}
+          </div>
+          <RoutePreview
+            comparison={comparison}
+            selected={selected}
+            inputAsset={inputAsset}
+            outputAsset={outputAsset}
+            payDisplay={displayAmount}
+            slippageBps={slippageBps}
+            busy={busy}
+            expired={expired}
+            now={clock}
+            onSelect={setSelectedProvider}
+          />
+          <button
+            type="button"
+            className="btn-primary swap-action-button"
+            aria-label="Swap tokens"
+            disabled={busy || signing || amountError !== null || selected === null || expired}
+            onClick={() => void swapNow()}
+          >
+            {signing ? "Opening your wallet…" : busy ? "Finding the best route…" : "Swap"}
+          </button>
+          {comparison !== null && (
+            <button type="button" className="swap-refresh-button" disabled={busy} onClick={() => void getQuotes()}>
+              Refresh quotes
+            </button>
+          )}
+        </section>
+      </div>
+
+      {expired && (
+        <div className="swap-problem-alert" role="alert">
+          This quote expired. Refresh quotes before continuing.
         </div>
       )}
 
-      {/* Main Swap Form */}
-      <div className="swap-card">
-        {/* Direction Switcher */}
-        <div className="swap-direction-bar">
-          <div className="direction-label">
-            <span className="asset-tag">{inputAsset.symbol}</span>
-            <span className="direction-arrow">→</span>
-            <span className="asset-tag">{outputAsset.symbol}</span>
-          </div>
-          <button
-            type="button"
-            className="swap-switch-btn"
-            onClick={handleDirectionToggle}
-            aria-label="Switch swap direction"
+      {signedNote !== null && (
+        <div className="swap-signed-note" role="status">
+          {signedNote}
+        </div>
+      )}
+      {problem !== null && (
+        <div className="swap-problem-alert" role="alert">
+          {problem}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function AssetField({
+  id,
+  label,
+  query,
+  onQuery,
+  selected,
+  otherId,
+  assets,
+  onSelect,
+  children,
+}: {
+  id: string;
+  label: string;
+  query: string;
+  onQuery: (value: string) => void;
+  selected: SwapAsset;
+  otherId: string;
+  assets: readonly SwapAsset[];
+  onSelect: (assetId: string) => void;
+  children: ReactNode;
+}) {
+  const filtered = assets.filter((asset) => {
+    if (asset.assetId === otherId) return false;
+    const haystack = `${asset.symbol} ${asset.name} ${asset.assetId}`.toLowerCase();
+    return haystack.includes(query.trim().toLowerCase());
+  });
+  const options = filtered.some((asset) => asset.assetId === selected.assetId)
+    ? filtered
+    : [selected, ...filtered.filter((asset) => asset.assetId !== selected.assetId)];
+  return (
+    <div className="swap-token-box">
+      <label htmlFor={id}>{label}</label>
+      <div className="swap-token-line">
+        <div className="swap-asset-picker">
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => onQuery(event.target.value)}
+            placeholder="Search assets"
+            aria-label={`${label} search`}
+          />
+          <select
+            id={id}
+            value={selected.assetId}
+            onChange={(event) => {
+              onSelect(event.target.value);
+              onQuery("");
+            }}
           >
-            ⇄ Switch Direction
-          </button>
+            {options.map((asset) => (
+              <option key={asset.assetId} value={asset.assetId}>
+                {optionLabel(asset, assets)}
+              </option>
+            ))}
+          </select>
         </div>
+        {children}
+      </div>
+    </div>
+  );
+}
 
-        {/* Input Amount */}
-        <div className="swap-input-group">
-          <label htmlFor="swap-amount-input" className="swap-label">
-            You Pay ({inputAsset.symbol})
-          </label>
-          <div className="swap-input-row">
-            <input
-              id="swap-amount-input"
-              className="swap-amount-input"
-              value={displayAmount}
-              onChange={(e) => {
-                setDisplayAmount(e.target.value);
-                setQuoted(null);
-                setProblem(null);
-              }}
-              placeholder={`0.0 ${inputAsset.symbol}`}
-              inputMode="decimal"
-              disabled={busy}
-            />
-            <span className="swap-unit-badge">{inputAsset.symbol}</span>
-          </div>
-          <div className="swap-base-units-hint">
-            {inputFormatError ? (
-              <span className="error-hint">{inputFormatError}</span>
-            ) : (
-              <span>
-                Exact: <code>{baseAmount}</code> base units ({inputAsset.decimals} decimals)
+function formatRate(offer: SwapOffer, inputAsset: SwapAsset, outputAsset: SwapAsset): string {
+  const pay = Number(fromBaseUnits(offer.amountIn, inputAsset.decimals));
+  const receive = Number(fromBaseUnits(offer.amountOut, outputAsset.decimals));
+  if (!Number.isFinite(pay) || !Number.isFinite(receive) || pay <= 0) return "Rate unavailable";
+  return `1 ${inputAsset.symbol} ≈ ${(receive / pay).toLocaleString(undefined, { maximumFractionDigits: 8 })} ${outputAsset.symbol}`;
+}
+
+function RoutePreview({
+  comparison,
+  selected,
+  inputAsset,
+  outputAsset,
+  payDisplay,
+  slippageBps,
+  busy,
+  expired,
+  now,
+  onSelect,
+}: {
+  comparison: SwapQuoteComparison | null;
+  selected: SwapOffer | null;
+  inputAsset: SwapAsset;
+  outputAsset: SwapAsset;
+  payDisplay: string;
+  slippageBps: number;
+  busy: boolean;
+  expired: boolean;
+  now: number;
+  onSelect: (provider: SwapProvider) => void;
+}) {
+  if (busy && comparison === null) {
+    return (
+      <div className="swap-route-preview" role="status">
+        <div className="swap-route-preview-header">
+          <span className="eyebrow">Route preview</span>
+          <strong>Finding the best route across Bitflow, Velar and ALEX…</strong>
+        </div>
+      </div>
+    );
+  }
+  if (comparison === null || selected === null) return null;
+  const routedByCapital = selected.rank === 1;
+  return (
+    <section className="swap-route-preview" aria-label="Swap route preview">
+      <div className="swap-route-preview-header">
+        <span className="eyebrow">Route preview</span>
+        <strong>
+          {payDisplay} {inputAsset.symbol} → {amount(selected.amountOut, outputAsset)}
+        </strong>
+        <small>
+          Minimum {amount(selected.minimumAmountOut, outputAsset)} · {slippageBps / 100}% max slippage
+          {expired ? " · quote expired" : ` · ${observedAge(selected.observedAt, now)}`}
+        </small>
+        <small>
+          {routedByCapital
+            ? `CapitalOS routes this swap through ${providerName(selected.provider)}`
+            : `You selected ${providerName(selected.provider)}`}{" "}
+          · {formatRate(selected, inputAsset, outputAsset)}
+        </small>
+      </div>
+      <div className="swap-preview-markets">
+        {comparison.offers.map((offer) => {
+          const recommended = offer.rank === 1;
+          const active = offer.provider === selected.provider;
+          return (
+            <button
+              key={offer.provider}
+              type="button"
+              className={`swap-preview-market ${recommended ? "recommended" : ""} ${active ? "selected" : ""}`}
+              aria-pressed={active}
+              aria-label={`Select ${providerName(offer.provider)} route`}
+              onClick={() => onSelect(offer.provider)}
+            >
+              <span className={`provider-mark provider-${offer.provider}`}>
+                {providerName(offer.provider).slice(0, 1)}
               </span>
-            )}
-          </div>
-        </div>
-
-        {/* Slippage Selector */}
-        <div className="slippage-control-group">
-          <div className="slippage-label-row">
-            <span className="swap-label">Max Slippage Tolerance</span>
-            <span className="slippage-current-value">
-              {(Number.parseInt(slippageBps, 10) / 100).toFixed(2)}% ({slippageBps} bps)
+              <span>
+                <strong>
+                  {providerName(offer.provider)}
+                  {recommended ? <em className="swap-recommended-badge">Recommended</em> : null}
+                </strong>
+                <small>{formatRate(offer, inputAsset, outputAsset)}</small>
+              </span>
+              <span>
+                <strong>{amount(offer.amountOut, outputAsset)}</strong>
+                <small>Min {amount(offer.minimumAmountOut, outputAsset)}</small>
+              </span>
+            </button>
+          );
+        })}
+        {comparison.unavailable.map((item) => (
+          <div key={item.provider} className="swap-preview-market unavailable">
+            <span className={`provider-mark provider-${item.provider}`}>{providerName(item.provider).slice(0, 1)}</span>
+            <span>
+              <strong>{providerName(item.provider)}</strong>
+              <small>{unavailableReason(item.reason)}</small>
+            </span>
+            <span>
+              <strong>—</strong>
+              <small>No quote</small>
             </span>
           </div>
-          <div className="slippage-toggle-group">
-            {[
-              { label: "0.1%", bps: "10" },
-              { label: "0.5%", bps: "50" },
-              { label: "1.0%", bps: "100" },
-            ].map((preset) => (
-              <button
-                key={preset.bps}
-                type="button"
-                className={`slippage-btn ${slippageBps === preset.bps && !customSlippage ? "slippage-btn-active" : ""}`}
-                onClick={() => {
-                  setSlippageBps(preset.bps);
-                  setCustomSlippage(false);
-                  setQuoted(null);
-                }}
-              >
-                {preset.label}
-              </button>
-            ))}
-            <button
-              type="button"
-              className={`slippage-btn ${customSlippage ? "slippage-btn-active" : ""}`}
-              onClick={() => setCustomSlippage(true)}
-            >
-              Custom
-            </button>
-          </div>
-          {customSlippage && (
-            <div className="custom-slippage-row">
-              <input
-                type="number"
-                min="0"
-                max="300"
-                value={slippageBps}
-                onChange={(e) => {
-                  setSlippageBps(e.target.value);
-                  setQuoted(null);
-                }}
-                className="custom-slippage-input"
-                placeholder="Basis points (max 300)"
-              />
-              <span className="custom-slippage-hint">Max 300 bps (3.0%)</span>
-            </div>
-          )}
-        </div>
-
-        {/* Action Button */}
-        <div className="swap-action-bar">
-          <button
-            type="button"
-            className="btn-primary swap-quote-btn"
-            disabled={busy || baseAmount === "0" || inputFormatError !== null}
-            onClick={() => void handleRefreshQuote()}
-          >
-            {busy ? "Fetching Route & Quote..." : quoted === null ? "Get Swap Quote" : "Refresh Quote"}
-          </button>
-        </div>
-
-        {/* Quoted Route & Review Panel */}
-        {view !== null && quoted !== null && (
-          <div className="swap-quote-review-card">
-            <div className="swap-quote-header">
-              <h4>Route & Execution Review</h4>
-              {expiryState && <span className={`expiry-badge expiry-${expiryState.status}`}>{expiryState.text}</span>}
-            </div>
-
-            {/* Route Legs */}
-            <div className="swap-route-box">
-              <span className="route-header-label">Execution Route (Bitflow DLMM)</span>
-              <ol className="route-leg-list">
-                {view.route.map((leg) => (
-                  <li key={`${leg.contractId}:${leg.functionName}`} className="route-leg-item">
-                    <span className="route-contract">{leg.contractId}</span>
-                    <span className="route-function">↳ {leg.functionName}</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-
-            {/* Reconciliation and Verification Flags */}
-            <div className="verification-badges-row">
-              {assetReconciliation?.reconciled ? (
-                <span className="badge badge-success">✓ Assets & Decimals Reconciled</span>
-              ) : (
-                <span className="badge badge-danger">
-                  ⚠ Unreconciled: {assetReconciliation?.reason ?? "Decimal mismatch"}
-                </span>
-              )}
-
-              {minimumOutputEnforcement?.enforced ? (
-                <span className="badge badge-success">✓ Onchain Min-Out Enforced</span>
-              ) : (
-                <span className="badge badge-danger">
-                  ⚠ Min-Out Not Enforced: {minimumOutputEnforcement?.reason ?? "Floor breached"}
-                </span>
-              )}
-            </div>
-
-            {/* Metrics Breakdown */}
-            <div className="swap-metrics-grid">
-              <div className="swap-metric-card">
-                <span className="metric-label">You Send</span>
-                <span className="metric-value">{view.sending}</span>
-                <span className="metric-sub">
-                  ~{fromBaseUnits(quoted.quote.input[0]?.quantity ?? "0", inputAsset.decimals)} {inputAsset.symbol}
-                </span>
-              </div>
-
-              <div className="swap-metric-card">
-                <span className="metric-label">Expected Output</span>
-                <span className="metric-value">{view.expectedReceived}</span>
-                <span className="metric-sub">
-                  ~{fromBaseUnits(quoted.quote.expectedOutput[0]?.quantity ?? "0", outputAsset.decimals)}{" "}
-                  {outputAsset.symbol}
-                </span>
-              </div>
-
-              <div className="swap-metric-card highlight-card">
-                <span className="metric-label">Guaranteed Minimum</span>
-                <span className="metric-value">{view.minimumReceived ?? "No Floor"}</span>
-                <span className="metric-sub">Enforced onchain (post-condition deny)</span>
-              </div>
-
-              <div className="swap-metric-card">
-                <span className="metric-label">Price Impact</span>
-                <span className={`metric-value impact-${impactTier}`}>
-                  {view.impactBps === null ? "Unknown" : `${(Number.parseInt(view.impactBps, 10) / 100).toFixed(2)}%`}
-                </span>
-                <span className="metric-sub">{view.impactNote ?? `${view.impactBps ?? 0} bps vs oracle`}</span>
-              </div>
-            </div>
-
-            {/* Warnings */}
-            {view.warnings.length > 0 && (
-              <div className="swap-warnings-box" role="alert">
-                {view.warnings.map((warning) => (
-                  <p key={warning} className="warn-text">
-                    ⚠ {warning}
-                  </p>
-                ))}
-              </div>
-            )}
-
-            {/* Expiry / Sign States */}
-            {view.expired || view.needsRefresh ? (
-              <StaleDisputedStateView
-                state={{
-                  kind: "stale_disputed",
-                  ageDescription: view.expired
-                    ? "past its valid expiry time"
-                    : `only ${view.expiresInSeconds}s remaining (too close to safely sign)`,
-                  sources: [MARKET_ID],
-                  onRequote: () => void handleRefreshQuote(),
-                }}
-              />
-            ) : (
-              <ReviewStateView
-                state={{
-                  kind: "review",
-                  giveAmount: view.sending,
-                  receiveAmount: view.expectedReceived,
-                  fees: quoted.quote.fees.map((fee) => ({
-                    kind: fee.kind,
-                    amount: fee.amount.quantity,
-                    ...(fee.amount.asset ? { asset: fee.amount.asset } : {}),
-                  })),
-                  ...(view.minimumReceived === null ? {} : { minimumOutput: view.minimumReceived }),
-                  protocol: "Bitflow",
-                  contract: contractOf(quoted.plan.steps),
-                  planValidated: isSignable && !busy,
-                  ...(isSignable
-                    ? {}
-                    : {
-                        validationError:
-                          assetReconciliation?.reason ||
-                          minimumOutputEnforcement?.reason ||
-                          view.warnings.join(" ") ||
-                          "This quote cannot be approved safely.",
-                      }),
-                  onConfirm: () => void handleApprove(),
-                }}
-              />
-            )}
-          </div>
-        )}
-
-        {/* Error Feedback */}
-        {problem !== null && (
-          <div className="swap-problem-alert" role="alert">
-            <span className="problem-icon">⚠</span>
-            <span className="problem-text">{problem}</span>
-          </div>
-        )}
+        ))}
       </div>
-    </Panel>
+    </section>
   );
 }
