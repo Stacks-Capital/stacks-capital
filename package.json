@@ -56,8 +56,8 @@
     "gate:k38": "node --experimental-strip-types scripts/gates/k38.ts",
     "gate:k39": "node --experimental-strip-types scripts/gates/k39.ts",
     "gate:k40": "node --experimental-strip-types scripts/gates/k40.ts",
-    "partner:example": "node --experimental-strip-types apps/partner-example/src/run.ts",
-    "partner:example:live": "node --experimental-strip-types apps/partner-example/src/run.ts --live"
+    "partner:example": "node --experimental-strip-types --env-file-if-exists=.env.local apps/partner-example/src/run.ts",
+    "partner:example:live": "node --experimental-strip-types --env-file-if-exists=.env.local apps/partner-example/src/run.ts --live"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
