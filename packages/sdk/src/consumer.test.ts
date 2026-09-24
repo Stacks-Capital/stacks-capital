@@ -7,6 +7,7 @@ import {
   CapitalConfigError,
   CapitalFinancialError,
   CapitalTransportError,
+  compareSwaps,
   createStacksCapital,
   createClient,
   formatQuantity,
@@ -111,6 +112,71 @@ describe("I29: Clean Consumer Compatibility & SDK Surface", () => {
       const prices = await client.prices();
       assert.ok(Array.isArray(prices.data.items));
       assert.match(recordedUrls[1] ?? "", /v1\/prices\?network=mainnet/);
+    });
+
+    it("compares live swap venues through the public SDK client", async () => {
+      const recorded: { url: string; method: string }[] = [];
+      const catalog = {
+        items: [
+          {
+            key: "stx",
+            assetId: "stacks:mainnet:native:stx",
+            symbol: "STX",
+            name: "Stacks",
+            decimals: 6,
+            providers: ["bitflow"],
+          },
+        ],
+        sources: {
+          bitflow: { status: "ok", count: 1, reason: null },
+          velar: { status: "unavailable", count: 0, reason: "timeout" },
+          alex: { status: "ok", count: 0, reason: null },
+        },
+      };
+      const comparison = {
+        assets: catalog.items,
+        offers: [
+          {
+            provider: "bitflow",
+            rank: 1,
+            status: "quote_only",
+            inputAsset: "stacks:mainnet:native:stx",
+            outputAsset: "stacks:mainnet:contract:SM3.sbtc-token:sbtc-token",
+            amountIn: "1000000",
+            amountOut: "305",
+            minimumAmountOut: "304",
+            fee: null,
+            priceImpactBps: null,
+            route: ["SP.bitflow"],
+            targetContract: "SP.bitflow",
+            observedAt: "2026-09-24T10:00:00.000Z",
+            expiresAt: "2026-09-24T10:00:30.000Z",
+            evidenceSource: "bitflow-fixture",
+            executionReason: "fixture",
+          },
+        ],
+        unavailable: [{ provider: "alex", reason: "This pair is not listed" }],
+      };
+      const client: CapitalClient = createClient({
+        baseUrl: "https://api.example",
+        network: "mainnet",
+        clientId: "cid_123",
+        fetch: async (input, init) => {
+          recorded.push({ url: String(input), method: init?.method ?? "GET" });
+          return mockEnvelope(String(input).includes("/v1/swaps/markets") ? catalog : comparison);
+        },
+      });
+      const result = await compareSwaps({
+        client,
+        inputAsset: "stacks:mainnet:native:stx",
+        outputAsset: "stacks:mainnet:contract:SM3.sbtc-token:sbtc-token",
+        amount: "1000000",
+        owner: MAINNET_OWNER,
+      });
+      assert.equal(result.selected?.provider, "bitflow");
+      assert.equal(result.recommended?.rank, 1);
+      assert.match(recorded[0]?.url ?? "", /v1\/swaps\/markets\?network=mainnet/);
+      assert.equal(recorded[1]?.method, "POST");
     });
 
     it("orchestrates local quote, plan validation, and state machine transitions through Stacks Capital", () => {
