@@ -13,6 +13,8 @@ import {
   type Position,
   RESOURCES,
   type Result,
+  type SwapMarketCatalog,
+  type SwapQuoteComparison,
   type Workflow,
   type WorkflowSummary,
 } from "@stacks-capital/client";
@@ -191,6 +193,60 @@ export function usePriceValuations(options: QueryOptions = {}): QueryResult<Resu
     key,
     (signal) => client.priceValuations({ signal }),
     options,
+  );
+}
+
+export function useSwapMarkets(options: QueryOptions = {}): QueryResult<Result<SwapMarketCatalog>> {
+  const { client, scope } = useCapital();
+  const key = cacheKey(scope, RESOURCES.swapMarkets);
+  return useCapitalQuery<Result<SwapMarketCatalog>>(key, (signal) => client.swapMarkets({ signal }), options);
+}
+
+export type SwapQuotesInput = {
+  inputAsset: string | null;
+  outputAsset: string | null;
+  amount: string | null;
+  slippageBps?: number;
+  owner?: string;
+};
+
+export function useSwapQuotes(
+  input: SwapQuotesInput,
+  options: QueryOptions = {},
+): QueryResult<Result<SwapQuoteComparison>> {
+  const { client, scope } = useCapital();
+  const { owner, ...queryInput } = input;
+  const address = owner ?? scope.address;
+  const ready =
+    queryInput.inputAsset !== null &&
+    queryInput.outputAsset !== null &&
+    queryInput.amount !== null &&
+    queryInput.amount !== "" &&
+    queryInput.amount !== "0" &&
+    address !== null;
+  const key = ready
+    ? cacheKey(scope, RESOURCES.swapQuotes, {
+        inputAsset: queryInput.inputAsset,
+        outputAsset: queryInput.outputAsset,
+        amount: queryInput.amount,
+        slippageBps: queryInput.slippageBps ?? 50,
+        owner: address,
+      })
+    : null;
+  return useCapitalQuery<Result<SwapQuoteComparison>>(
+    key,
+    (signal) =>
+      client.swapQuotes(
+        {
+          inputAsset: queryInput.inputAsset ?? "",
+          outputAsset: queryInput.outputAsset ?? "",
+          amount: queryInput.amount ?? "0",
+          ...(queryInput.slippageBps === undefined ? {} : { slippageBps: queryInput.slippageBps }),
+          ...(address === null ? {} : { owner: address }),
+        },
+        { signal },
+      ),
+    { staleMs: 5_000, ...options },
   );
 }
 
