@@ -1,12 +1,16 @@
 import {
   canSubmitWrite,
+  compareSwaps,
+  createClient,
   createStacksCapital,
   executable,
   parsePlan,
   parseQuote,
   requireNetwork,
+  type ComparedSwaps,
   type PlanWire,
   type QuoteWire,
+  type SwapProvider,
 } from "@stacks-capital/sdk";
 
 const SCHEMA_VERSION = "1.0";
@@ -15,6 +19,8 @@ export type PartnerOptions = {
   apiBase: string;
   network: "mainnet" | "testnet";
   owner: string;
+  /** Server API key. Never pass a browser `VITE_` value here. */
+  apiKey?: string;
   fetchImpl?: typeof fetch;
 };
 
@@ -37,9 +43,13 @@ function codeOf(error: unknown): string {
 
 async function postJson<T>(options: PartnerOptions, path: string, body: unknown): Promise<T> {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (options.apiKey !== undefined && options.apiKey.length > 0) {
+    headers.authorization = `Bearer ${options.apiKey}`;
+  }
   const response = await fetchImpl(`${options.apiBase}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
   const json = (await response.json()) as {
@@ -163,4 +173,45 @@ export const runZestExit = runZestWithdrawSupply;
 
 export function stakingIsDisabled(): boolean {
   return executable("stake", "mainnet") === false;
+}
+
+export const PARTNER_SWAP_INPUT = "stacks:mainnet:native:stx";
+export const PARTNER_SWAP_OUTPUT =
+  "stacks:mainnet:contract:SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx:usdcx-token";
+export const PARTNER_SWAP_AMOUNT = "1000000";
+
+export type SwapCompareInput = {
+  inputAsset: string;
+  outputAsset: string;
+  amount: string;
+  slippageBps?: number;
+  provider?: SwapProvider | null;
+};
+
+/**
+ * Same live-catalog + ranked-quote path as Stacks Capital. CapitalOS picks the best guaranteed
+ * minimum; the host may pass an optional provider override. The SDK never broadcasts.
+ */
+export async function runSwapCompare(options: PartnerOptions, input: SwapCompareInput): Promise<ComparedSwaps> {
+  requireNetwork(options.network);
+  if (options.network !== "mainnet") {
+    throw new Error("Swap comparison is mainnet only");
+  }
+  const client = createClient({
+    baseUrl: options.apiBase,
+    network: options.network,
+    ...(options.apiKey !== undefined && options.apiKey.length > 0
+      ? { apiKey: options.apiKey }
+      : { clientId: "pk_fixture_sandbox" }),
+    ...(options.fetchImpl === undefined ? {} : { fetch: options.fetchImpl }),
+  });
+  return compareSwaps({
+    client,
+    inputAsset: input.inputAsset,
+    outputAsset: input.outputAsset,
+    amount: input.amount,
+    ...(input.slippageBps === undefined ? {} : { slippageBps: input.slippageBps }),
+    owner: options.owner,
+    ...(input.provider === undefined ? {} : { provider: input.provider }),
+  });
 }
