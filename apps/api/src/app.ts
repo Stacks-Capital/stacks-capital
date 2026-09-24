@@ -71,6 +71,8 @@ import {
   quoteRoute,
   signatureRoute,
   startWorkflowRoute,
+  swapComparisonRoute,
+  swapMarketsRoute,
   verifyRoute,
   workflowRoute,
   workflowsRoute,
@@ -81,6 +83,13 @@ import {
 import { intentFromBody, mintPlan, quoteOwner, toQuoteWire } from "./quote.ts";
 import { SCHEMA_VERSION } from "./schemas.ts";
 import { serializePlan, serializeQuote } from "./serialize.ts";
+import {
+  CANONICAL_SWAP_ASSETS,
+  listMainnetSwapMarkets,
+  publicSwapAsset,
+  type SwapMarketCatalog,
+} from "./swapMarkets.ts";
+import { compareSwapQuotes, type SwapQuoteProvider } from "./swapQuotes.ts";
 
 export type AppDependencies = {
   sql: Sql;
@@ -89,6 +98,10 @@ export type AppDependencies = {
   now?: () => Date;
   /** Where quotes read market state. Defaults to live provider reads with the server's Hiro key. */
   reads?: ReadsLoader;
+  /** Test seam for deterministic provider comparison. Production uses all three mainnet providers. */
+  swapQuoteProviders?: readonly SwapQuoteProvider[];
+  /** Test seam for the live Bitflow/Velar/ALEX token catalog. */
+  swapMarkets?: () => Promise<SwapMarketCatalog>;
 };
 type Env = { Variables: { requestId: string } };
 
@@ -877,6 +890,84 @@ export function createApp(deps: AppDependencies) {
       },
       200,
     );
+  });
+
+  const loadSwapMarkets =
+    deps.swapMarkets ??
+    (deps.swapQuoteProviders === undefined
+      ? () => listMainnetSwapMarkets({ now })
+      : async () => ({
+          assets: [...CANONICAL_SWAP_ASSETS],
+          sources: {
+            bitflow: { status: "ok" as const, count: 4, reason: null },
+            velar: { status: "ok" as const, count: 4, reason: null },
+            alex: { status: "ok" as const, count: 4, reason: null },
+          },
+          observedAt: now().toISOString(),
+        }));
+
+  app.openapi(swapMarketsRoute, async (c) => {
+    requireScope(await admit(c), "markets:read");
+    const catalog = await loadSwapMarkets();
+    const warnings = (["bitflow", "velar", "alex"] as const)
+      .filter((provider) => catalog.sources[provider].status === "unavailable")
+      .map((provider) => `${provider} token catalog is unavailable`);
+    return c.json(
+      {
+        schemaVersion: SCHEMA_VERSION,
+        requestId: c.get("requestId"),
+        network: "stacks:mainnet" as const,
+        data: {
+          items: catalog.assets.map(publicSwapAsset),
+          sources: catalog.sources,
+        },
+        context: { ...context(), warnings },
+      },
+      200,
+    );
+  });
+
+  app.openapi(swapComparisonRoute, async (c) => {
+    const input = c.req.valid("json");
+    const principal = writer(await admit(c), "quotes:write");
+    if (principal.kind === "session" && principal.network !== input.network) {
+      throw new ApiError("NETWORK_MISMATCH", `Session is for ${principal.network}`);
+    }
+    const owner = quoteOwner(principal, input.owner);
+    const catalog = await loadSwapMarkets();
+    try {
+      const comparison = await compareSwapQuotes(
+        {
+          network: input.network,
+          owner,
+          inputAsset: input.inputAsset,
+          outputAsset: input.outputAsset,
+          amount: input.amount,
+          slippageBps: input.slippageBps,
+        },
+        {
+          catalog: catalog.assets,
+          ...(deps.swapQuoteProviders === undefined ? {} : { providers: deps.swapQuoteProviders }),
+          now,
+        },
+      );
+      return c.json(
+        {
+          schemaVersion: SCHEMA_VERSION,
+          requestId: c.get("requestId"),
+          network: "stacks:mainnet" as const,
+          data: comparison,
+          context: context(),
+        },
+        200,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid swap request";
+      if (/Unsupported exact asset|must differ|positive integer|Slippage/.test(message)) {
+        throw new ApiError("INVALID_REQUEST", message);
+      }
+      throw error;
+    }
   });
 
   app.openapi(planRoute, async (c) => {
