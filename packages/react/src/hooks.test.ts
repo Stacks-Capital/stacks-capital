@@ -17,6 +17,8 @@ import {
   useMarkets,
   usePortfolio,
   usePriceValuations,
+  useSwapMarkets,
+  useSwapQuotes,
   useWorkflow,
   useWorkflowResume,
 } from "./hooks.ts";
@@ -652,6 +654,140 @@ describe("tenant isolation in hooks", () => {
       cacheKey({ network: "mainnet", address: "SP1", tenantId: "tenant_from_client" }, "markets"),
     ]);
 
+    view.unmount();
+  });
+});
+
+describe("useSwapMarkets", () => {
+  it("loads the live catalog once", async () => {
+    const cache = createCache();
+    let calls = 0;
+    const client = fakeClient({
+      swapMarkets: async () => {
+        calls += 1;
+        return {
+          data: {
+            items: [
+              {
+                key: "stx",
+                assetId: "stacks:mainnet:native:stx",
+                symbol: "STX",
+                name: "Stacks",
+                decimals: 6,
+                providers: ["bitflow"],
+              },
+            ],
+            sources: {
+              bitflow: { status: "ok", count: 1, reason: null },
+              velar: { status: "ok", count: 0, reason: null },
+              alex: { status: "ok", count: 0, reason: null },
+            },
+          },
+          context: page("x").context,
+        };
+      },
+    });
+
+    const { view, last } = harness(client, cache, () => useSwapMarkets());
+    await view.settle();
+    const result = last() as { status: string; data?: { data: { items: { symbol: string }[] } } };
+    assert.equal(result.status, "ready");
+    assert.equal(result.data?.data.items[0]?.symbol, "STX");
+    assert.equal(calls, 1);
+    assert.equal(cache.get(cacheKey({ network: "mainnet", address: "SP1" }, RESOURCES.swapMarkets)).status, "ready");
+    view.unmount();
+  });
+});
+
+describe("useSwapQuotes", () => {
+  it("stays idle until the pair, amount and owner are set", async () => {
+    const cache = createCache();
+    let calls = 0;
+    const client = fakeClient({
+      swapQuotes: async () => {
+        calls += 1;
+        return { data: { assets: [], offers: [], unavailable: [] }, context: page("x").context };
+      },
+    });
+
+    const { view, last } = harness(
+      client,
+      cache,
+      () =>
+        useSwapQuotes({
+          inputAsset: "stacks:mainnet:native:stx",
+          outputAsset: "stacks:mainnet:contract:SM3.sbtc-token:sbtc-token",
+          amount: "0",
+        }),
+      { address: null },
+    );
+    await view.settle();
+    assert.equal((last() as { status: string }).status, "idle");
+    assert.equal(calls, 0);
+    view.unmount();
+  });
+
+  it("compares venues for the selected pair", async () => {
+    const cache = createCache();
+    let seenOwner: string | undefined;
+    const client = fakeClient({
+      swapQuotes: async (input) => {
+        seenOwner = input.owner;
+        return {
+          data: {
+            assets: [],
+            offers: [
+              {
+                provider: "velar",
+                rank: 1,
+                status: "quote_only",
+                inputAsset: input.inputAsset,
+                outputAsset: input.outputAsset,
+                amountIn: input.amount,
+                amountOut: "370",
+                minimumAmountOut: "368",
+                fee: null,
+                priceImpactBps: null,
+                route: ["SP.velar"],
+                targetContract: "SP.velar",
+                observedAt: "2026-09-24T10:00:00.000Z",
+                expiresAt: "2026-09-24T10:00:30.000Z",
+                evidenceSource: "velar-fixture",
+                executionReason: "fixture",
+              },
+            ],
+            unavailable: [{ provider: "alex", reason: "This pair is not listed" }],
+          },
+          context: page("x").context,
+        };
+      },
+    });
+
+    const { view, last } = harness(client, cache, () =>
+      useSwapQuotes({
+        inputAsset: "stacks:mainnet:native:stx",
+        outputAsset: "stacks:mainnet:contract:SM3.sbtc-token:sbtc-token",
+        amount: "1000000",
+        slippageBps: 50,
+      }),
+    );
+    await view.settle();
+    const result = last() as { status: string; data?: { data: { offers: { provider: string }[] } } };
+    assert.equal(result.status, "ready");
+    assert.equal(result.data?.data.offers[0]?.provider, "velar");
+    assert.equal(seenOwner, "SP1");
+    assert.equal(
+      cache.get(
+        cacheKey({ network: "mainnet", address: "SP1" }, RESOURCES.swapQuotes, {
+          inputAsset: "stacks:mainnet:native:stx",
+          outputAsset: "stacks:mainnet:contract:SM3.sbtc-token:sbtc-token",
+          amount: "1000000",
+          slippageBps: 50,
+          owner: "SP1",
+        }),
+      ).status,
+      "ready",
+    );
     view.unmount();
   });
 });
