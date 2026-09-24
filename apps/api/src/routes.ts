@@ -27,6 +27,10 @@ import {
   SignatureResponse,
   StartedWorkflowResponse,
   StartWorkflowRequest,
+  SwapComparisonRequest,
+  SwapComparisonResponse,
+  SwapMarketsQuery,
+  SwapMarketsResponse,
   ValuationsResponse,
   VerifyRequest,
   WebhookEndpointCreatedResponse,
@@ -96,6 +100,28 @@ export const quoteRoute = createRoute({
   security: keyOrSession,
   request: { body: body(QuoteRequest) },
   responses: { 200: json("A quote and the unsigned plan that executes it", QuoteResponse), ...errorResponses },
+});
+
+export const swapMarketsRoute = createRoute({
+  method: "get",
+  path: "/v1/swaps/markets",
+  security: anyCaller,
+  request: { query: SwapMarketsQuery },
+  responses: {
+    200: json("Live mainnet tokens listed by Bitflow, Velar and ALEX", SwapMarketsResponse),
+    ...errorResponses,
+  },
+});
+
+export const swapComparisonRoute = createRoute({
+  method: "post",
+  path: "/v1/swaps/quotes",
+  security: keyOrSession,
+  request: { body: body(SwapComparisonRequest) },
+  responses: {
+    200: json("Ranked mainnet swap quotes from Bitflow, Velar and ALEX", SwapComparisonResponse),
+    ...errorResponses,
+  },
 });
 
 export const planRoute = createRoute({
