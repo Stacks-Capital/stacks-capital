@@ -24,6 +24,8 @@ export const RESOURCES = {
   priceValuations: "priceValuations",
   earnOptions: "earnOptions",
   risk: "risk",
+  swapMarkets: "swapMarkets",
+  swapQuotes: "swapQuotes",
 } as const;
 
 export type Resource = (typeof RESOURCES)[keyof typeof RESOURCES] | (string & {});
