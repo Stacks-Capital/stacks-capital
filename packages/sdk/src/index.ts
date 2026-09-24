@@ -1,6 +1,15 @@
 export { createStacksCapital, executable, marketsComparable, parsePlan, parseQuote } from "./client.ts";
 export type { StacksCapital, StacksCapitalOptions, SigningInput } from "./client.ts";
 export {
+  assertSwapWalletCall,
+  compareSwaps,
+  recommendedSwapOffer,
+  selectSwapOffer,
+  swapMarketRows,
+  swapOfferExpired,
+} from "./swap.ts";
+export type { ComparedSwaps, CompareSwapsInput, SwapMarketRow } from "./swap.ts";
+export {
   COMPATIBILITY_MATRIX,
   LAUNCH_DECISION,
   PARTNER_FORBIDDEN_PACKAGES,
@@ -65,6 +74,14 @@ export type {
   Session,
   SignatureOutcome,
   StartedWorkflow,
+  SwapAsset,
+  SwapCatalogSource,
+  SwapMarketCatalog,
+  SwapOffer,
+  SwapProvider,
+  SwapQuoteComparison,
+  SwapWalletCall,
+  SwapWalletPostCondition,
   TransportKind,
   WebhookEndpoint,
   WorkflowSummary,
