@@ -327,6 +327,116 @@ export const SignatureOutcome = z
 
 export const QuoteResponse = envelope("QuoteResponse", z.object({ quote: Quote, plan: Plan }));
 export const PlanResponse = envelope("PlanResponse", Plan);
+
+const SwapExactAsset = z
+  .string()
+  .max(200)
+  .regex(
+    /^stacks:mainnet:(native:stx|contract:S[PM][A-Z0-9]{25,41}\.[A-Za-z0-9\-_]+:[A-Za-z0-9\-_$.]+)$/,
+    "must be an exact Stacks mainnet asset identity",
+  );
+
+export const SwapMarketsQuery = z.object({
+  network: z.literal("mainnet").openapi({ description: "Swap catalogs are mainnet-only." }),
+});
+
+export const SwapProviderName = z.enum(["bitflow", "velar", "alex"]);
+
+export const SwapCatalogSource = z.object({
+  status: z.enum(["ok", "unavailable"]),
+  count: z.number().int().nonnegative(),
+  reason: z.string().nullable(),
+});
+
+export const SwapComparisonRequest = z
+  .object({
+    network: z.literal("mainnet"),
+    owner: z.string().min(1).max(64).optional(),
+    inputAsset: SwapExactAsset,
+    outputAsset: SwapExactAsset,
+    amount: IntegerString.max(39).refine((value) => BigInt(value) > 0n, "amount must be greater than zero"),
+    slippageBps: z.number().int().min(0).max(300).default(50),
+  })
+  .refine((value) => value.inputAsset !== value.outputAsset, {
+    message: "inputAsset and outputAsset must differ",
+    path: ["outputAsset"],
+  })
+  .openapi("SwapComparisonRequest");
+
+export const SwapAsset = z.object({
+  key: z.string(),
+  assetId: z.string(),
+  symbol: z.string(),
+  name: z.string(),
+  decimals: z.number().int().nonnegative(),
+  providers: z.array(SwapProviderName),
+});
+
+export const SwapMarketsResponse = envelope(
+  "SwapMarketsResponse",
+  z.object({
+    items: z.array(SwapAsset),
+    sources: z.object({
+      bitflow: SwapCatalogSource,
+      velar: SwapCatalogSource,
+      alex: SwapCatalogSource,
+    }),
+  }),
+);
+
+const SwapWalletPostCondition = z.union([
+  z.object({
+    type: z.literal("stx-postcondition"),
+    address: z.string(),
+    condition: z.enum(["lte", "eq", "gte"]),
+    amount: IntegerString,
+  }),
+  z.object({
+    type: z.literal("ft-postcondition"),
+    address: z.string(),
+    condition: z.enum(["lte", "eq", "gte"]),
+    amount: IntegerString,
+    asset: z.string(),
+  }),
+]);
+
+export const SwapWalletCall = z.object({
+  contractId: z.string(),
+  functionName: z.string(),
+  functionArgs: z.array(z.string().regex(/^0x[0-9a-f]+$/i)),
+  postConditions: z.array(SwapWalletPostCondition).min(1),
+  postConditionMode: z.enum(["deny", "allow"]),
+  network: z.literal("mainnet"),
+});
+
+export const SwapOffer = z.object({
+  provider: SwapProviderName,
+  rank: z.number().int().positive(),
+  status: z.enum(["executable", "quote_only"]),
+  inputAsset: z.string(),
+  outputAsset: z.string(),
+  amountIn: IntegerString,
+  amountOut: IntegerString,
+  minimumAmountOut: IntegerString,
+  fee: z.object({ asset: z.string(), quantity: IntegerString }).nullable(),
+  priceImpactBps: z.number().nonnegative().nullable(),
+  route: z.array(z.string()),
+  targetContract: z.string(),
+  observedAt: z.iso.datetime(),
+  expiresAt: z.iso.datetime(),
+  evidenceSource: z.string(),
+  executionReason: z.string(),
+  walletCall: SwapWalletCall.optional(),
+});
+
+export const SwapComparisonResponse = envelope(
+  "SwapComparisonResponse",
+  z.object({
+    assets: z.array(SwapAsset),
+    offers: z.array(SwapOffer),
+    unavailable: z.array(z.object({ provider: SwapProviderName, reason: z.string() })),
+  }),
+);
 export const StartedWorkflowResponse = envelope(
   "StartedWorkflowResponse",
   z.object({ workflowId: z.string(), state: z.string(), nextAction: z.string(), plan: Plan }),
