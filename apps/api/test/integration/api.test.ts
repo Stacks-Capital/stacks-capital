@@ -6,7 +6,14 @@ import { FIXTURE_APP, seedFixtures } from "@stacks-capital/database/fixtures";
 import { MAINNET_OWNER, MAINNET_READS } from "@stacks-capital/fixtures";
 import { createApp } from "../../src/app.ts";
 import { memoryLimiter } from "../../src/rateLimit.ts";
-import { CapabilitiesResponse, MarketsResponse, PlanResponse, QuoteResponse } from "../../src/schemas.ts";
+import {
+  CapabilitiesResponse,
+  MarketsResponse,
+  PlanResponse,
+  QuoteResponse,
+  SwapComparisonResponse,
+} from "../../src/schemas.ts";
+import type { SwapQuoteProvider } from "../../src/swapQuotes.ts";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "";
 const NOW = "2026-09-15T12:00:00.000Z";
@@ -132,5 +139,84 @@ describe("API against the seeded database", { skip: DATABASE_URL === "" ? "DATAB
     const planned = PlanResponse.parse(await planResponse.json());
     assert.equal(planned.data.quoteId, quoted.data.quote.id);
     assert.equal(planned.data.steps[0]?.payload.kind, "stacks_contract_call");
+  });
+
+  it("compares authenticated swap quotes without calling live providers", async () => {
+    const fixture = (name: SwapQuoteProvider["name"], minimum: string): SwapQuoteProvider => ({
+      name,
+      async quote(request, now) {
+        return {
+          provider: name,
+          inputAsset: request.inputAsset,
+          outputAsset: request.outputAsset,
+          amountIn: request.amount,
+          amountOut: (BigInt(minimum) + 3n).toString(),
+          minimumAmountOut: minimum,
+          fee: null,
+          priceImpactBps: null,
+          route: [`SP000.${name}-pool`],
+          targetContract: `SP000.${name}`,
+          observedAt: now.toISOString(),
+          expiresAt: new Date(now.getTime() + 30_000).toISOString(),
+          evidenceSource: `${name}-integration-fixture`,
+        };
+      },
+    });
+    const comparing = createApp({
+      sql,
+      limiter: memoryLimiter(),
+      now: () => new Date(NOW),
+      reads: MAINNET_READS,
+      swapQuoteProviders: [fixture("bitflow", "100"), fixture("velar", "110"), fixture("alex", "90")],
+    });
+    const body = {
+      network: "mainnet",
+      owner: MAINNET_OWNER,
+      inputAsset: "stacks:mainnet:native:stx",
+      outputAsset: "stacks:mainnet:contract:SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token:sbtc-token",
+      amount: "1000000",
+      slippageBps: 50,
+    };
+    const unauthorized = await comparing.request("/v1/swaps/quotes", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    assert.equal(unauthorized.status, 401);
+
+    const missingOwner = await comparing.request("/v1/swaps/quotes", {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ ...body, owner: undefined }),
+    });
+    assert.equal(missingOwner.status, 400);
+
+    const { token: readOnly } = await createApiKey(sql, { appId: FIXTURE_APP.id, scopes: ["markets:read"] });
+    const forbidden = await comparing.request("/v1/swaps/quotes", {
+      method: "POST",
+      headers: { authorization: `Bearer ${readOnly}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    assert.equal(forbidden.status, 403);
+
+    const response = await comparing.request("/v1/swaps/quotes", {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    assert.equal(response.status, 200);
+    const compared = SwapComparisonResponse.parse(await response.json());
+    assert.equal(compared.schemaVersion, "1.0");
+    assert.equal(compared.network, "stacks:mainnet");
+    assert.deepEqual(
+      compared.data.offers.map((offer) => [offer.rank, offer.provider, offer.minimumAmountOut]),
+      [
+        [1, "velar", "110"],
+        [2, "bitflow", "100"],
+        [3, "alex", "90"],
+      ],
+    );
+    assert.equal(compared.data.offers[0]?.amountIn, "1000000");
+    assert.equal(compared.data.unavailable.length, 0);
   });
 });
