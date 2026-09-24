@@ -253,19 +253,110 @@ test("partial data journey discloses unvalued assets and coverage warnings", asy
   await expect(page.getByText("Capital Deployment by Category")).toBeVisible();
 });
 
-test("swap routing journey quotes Bitflow AMM, displays impact and route hops", async ({ page }) => {
+test("swap routing journey auto-selects the best quote and signs that route", async ({ page }) => {
   await connect(page);
+  await page.route("**/v1/swaps/markets**", async (route) => {
+    const observedAt = new Date().toISOString();
+    await route.fulfill({
+      json: {
+        schemaVersion: "1.0",
+        requestId: "req_swap_markets_e2e",
+        network: "stacks:mainnet",
+        data: {
+          items: [
+            {
+              key: "stx",
+              assetId: "stacks:mainnet:native:stx",
+              symbol: "STX",
+              name: "Stacks",
+              decimals: 6,
+              providers: ["bitflow", "velar", "alex"],
+            },
+            {
+              key: "sbtc",
+              assetId: "stacks:mainnet:contract:SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token:sbtc-token",
+              symbol: "sBTC",
+              name: "Canonical sBTC",
+              decimals: 8,
+              providers: ["bitflow", "velar"],
+            },
+          ],
+          sources: {
+            bitflow: { status: "ok", count: 2, reason: null },
+            velar: { status: "ok", count: 2, reason: null },
+            alex: { status: "ok", count: 1, reason: null },
+          },
+        },
+        context: { observedAt, stale: false, warnings: [] },
+      },
+    });
+  });
+  await page.route("**/v1/swaps/quotes", async (route) => {
+    const body = route.request().postDataJSON() as { inputAsset: string; outputAsset: string; amount: string };
+    const observedAt = new Date().toISOString();
+    const offer = (provider: "velar" | "bitflow" | "alex", rank: number, output: string) => ({
+      provider,
+      rank,
+      status: "quote_only",
+      inputAsset: body.inputAsset,
+      outputAsset: body.outputAsset,
+      amountIn: body.amount,
+      amountOut: output,
+      minimumAmountOut: (BigInt(output) - 2n).toString(),
+      fee: provider === "bitflow" ? { asset: body.inputAsset, quantity: "5000" } : null,
+      priceImpactBps: provider === "bitflow" ? 1 : null,
+      route: [`SP_FIXTURE.${provider}-pool`],
+      targetContract: `SP_FIXTURE.${provider}-router`,
+      observedAt,
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      evidenceSource: `${provider}-fixture`,
+      executionReason: "Fixture quote requires external execution.",
+      walletCall: {
+        contractId: `SP_FIXTURE.${provider}-router`,
+        functionName: "swap-simple-multi",
+        functionArgs: ["0x0b000000010c"],
+        postConditions: [
+          { type: "stx-postcondition", address: "SP_FIXTURE_OWNER", condition: "lte", amount: body.amount },
+        ],
+        postConditionMode: "deny",
+        network: "mainnet",
+      },
+    });
+    await route.fulfill({
+      json: {
+        schemaVersion: "1.0",
+        requestId: "req_swap_e2e",
+        network: "stacks:mainnet",
+        data: {
+          assets: [],
+          offers: [offer("velar", 1, "370"), offer("bitflow", 2, "368")],
+          unavailable: [{ provider: "alex", reason: "This pair is not listed" }],
+        },
+        context: { observedAt, stale: false, warnings: [] },
+      },
+    });
+  });
   await openTab(page, "Swap");
-
-  await expect(page.getByRole("heading", { name: "Swap assets" })).toBeVisible();
-  await page.locator("#swap-amount-input").fill("1.0");
-  await page.getByRole("button", { name: "Get Swap Quote" }).click();
-
-  await expect(page.getByRole("heading", { name: "Review before signing" })).toBeVisible();
-  await expect(page.locator(".route-contract").getByText(/dlmm-swap-router/)).toBeVisible();
-  await expect(page.getByText("Price Impact", { exact: true })).toBeVisible();
-  // The quote's asset identifiers must reconcile against the registry, or this stays "Validation required".
-  await expect(page.getByRole("button", { name: "Sign in your wallet" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Swap across Stacks" })).toBeVisible();
+  await page.getByLabel("Swap amount").fill("1.0");
+  await expect(page.getByLabel("Swap route preview")).toBeVisible();
+  await expect(page.getByText("CapitalOS routes this swap through Velar")).toBeVisible();
+  await expect(page.locator(".swap-preview-market.recommended")).toContainText("Velar");
+  await expect(page.locator(".swap-preview-market.recommended")).toContainText("Recommended");
+  await expect(page.locator(".swap-preview-market").filter({ hasText: "Bitflow" })).toBeVisible();
+  await expect(page.locator(".swap-preview-market").filter({ hasText: "ALEX" })).toContainText(
+    "This pair is not listed.",
+  );
+  await page.getByRole("button", { name: "Select Bitflow route" }).click();
+  await expect(page.getByText("You selected Bitflow")).toBeVisible();
+  await expect(page.locator(".swap-preview-market.recommended")).toContainText("Velar");
+  await expect(page.getByRole("button", { name: "Swap tokens" })).toHaveCount(1);
+  await page.getByRole("button", { name: "Swap tokens" }).click();
+  await expect(
+    page.getByText("Signed in your wallet. CapitalOS does not broadcast or reconcile this provider route."),
+  ).toBeVisible();
+  expect(wallet.calls).toContain("stx_callContract");
+  await expect(page).toHaveURL(/localhost/);
 });
 
 test("risk and alerts journey allows view toggle and advisory consent", async ({ page }) => {
