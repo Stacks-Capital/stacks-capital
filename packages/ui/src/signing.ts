@@ -1,7 +1,13 @@
-import type { PlanStep } from "@stacks-capital/client";
+import type { PlanStep, SwapWalletCall } from "@stacks-capital/client";
 import { parseAssetId, type PlanValidation, type StacksNetwork } from "@stacks-capital/core";
 import { classifyWalletError, type WalletId } from "@stacks-capital/wallets";
-import { Cl, type ClarityValue as StacksClarityValue, cvToHex } from "@stacks/transactions";
+import {
+  Cl,
+  type ClarityValue as StacksClarityValue,
+  type PostCondition,
+  cvToHex,
+  postConditionToHex,
+} from "@stacks/transactions";
 
 type PlanClarityValue =
   | { type: "uint"; value: string }
@@ -33,7 +39,7 @@ export type WalletRequest = {
     contract: string;
     functionName: string;
     functionArgs: string[];
-    postConditions: PostConditionRequest[];
+    postConditions: string[];
     postConditionMode: "deny" | "allow";
     network: StacksNetwork;
   };
@@ -108,7 +114,9 @@ export function toWalletRequest(step: PlanStep, validation: PlanValidation): Wal
       contract: payload.contractId,
       functionName: payload.functionName,
       functionArgs: payload.functionArgs.map(encodeArgument),
-      postConditions: payload.postConditions.map(encodePostCondition),
+      postConditions: payload.postConditions.map((condition) =>
+        serializeWalletPostCondition(encodePostCondition(condition)),
+      ),
       postConditionMode: payload.postConditionMode,
       network: payload.network,
     },
@@ -135,13 +143,77 @@ export async function askWallet(
   validation: PlanValidation,
 ): Promise<WalletAnswer> {
   assertWalletAllowed(validation);
+  return askWalletRequest(provider, walletId, request);
+}
+
+/** Turns a provider-built swap call into the exact request the wallet is asked to sign. */
+export function toWalletCallRequest(call: SwapWalletCall): WalletRequest {
+  if (call.network !== "mainnet") throw new Error("This app only signs mainnet swap calls");
+  if (call.functionName.length === 0) throw new Error("Swap call is missing a function name");
+  if (call.functionArgs.length === 0 || !call.functionArgs.every((argument) => /^0x[0-9a-f]+$/i.test(argument))) {
+    throw new Error("Swap call arguments must be encoded Clarity hex");
+  }
+  if (call.postConditions.length === 0) {
+    throw new Error("Swap call is missing post-conditions that protect the exact assets");
+  }
+  return {
+    method: "stx_callContract",
+    params: {
+      contract: call.contractId,
+      functionName: call.functionName,
+      functionArgs: call.functionArgs,
+      postConditions: call.postConditions.map(serializeWalletPostCondition),
+      postConditionMode: call.postConditionMode,
+      network: call.network,
+    },
+  };
+}
+
+/**
+ * Asks the wallet to sign a provider-built swap call. This path does not claim CapitalOS registry
+ * execution, so it never runs SDK plan validation.
+ */
+export async function askWalletCall(
+  provider: { request(method: string, params?: unknown): Promise<unknown> },
+  walletId: WalletId,
+  request: WalletRequest,
+): Promise<WalletAnswer> {
+  return askWalletRequest(provider, walletId, request);
+}
+
+async function askWalletRequest(
+  provider: { request(method: string, params?: unknown): Promise<unknown> },
+  walletId: WalletId,
+  request: WalletRequest,
+): Promise<WalletAnswer> {
   try {
-    return { kind: "answered", result: await provider.request(request.method, request.params) };
+    return { kind: "answered", result: unwrapWalletResponse(await provider.request(request.method, request.params)) };
   } catch (error) {
     if (classifyWalletError(walletId, error) === "USER_REJECTED") {
       return { kind: "rejected", message: "You declined in your wallet. Nothing was sent." };
     }
-    const message = (error as { message?: unknown } | null)?.message;
-    return { kind: "unknown", result: { error: typeof message === "string" ? message : "The wallet did not answer" } };
+    return { kind: "unknown", result: { error: walletErrorMessage(error) } };
   }
+}
+
+/** Leather returns SIP-30 envelopes: `{ result }` on success and `{ error: { code, message } }` on failure. */
+function unwrapWalletResponse(value: unknown): unknown {
+  if (typeof value !== "object" || value === null) return value;
+  const record = value as Record<string, unknown>;
+  if (record.error !== undefined && record.error !== null) throw record.error;
+  return record.result === undefined ? value : record.result;
+}
+
+function walletErrorMessage(error: unknown): string {
+  if (typeof error === "string" && error.length > 0) return error;
+  if (typeof error !== "object" || error === null) return "The wallet did not answer";
+  const record = error as Record<string, unknown>;
+  if (typeof record.message === "string" && record.message.length > 0) return record.message;
+  if (record.error !== undefined) return walletErrorMessage(record.error);
+  return "The wallet did not answer";
+}
+
+function serializeWalletPostCondition(condition: PostConditionRequest): string {
+  // Leather's hexToBytes rejects a 0x prefix ("Not a serialized post condition").
+  return postConditionToHex(condition as PostCondition).replace(/^0x/i, "");
 }
