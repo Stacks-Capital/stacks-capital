@@ -3032,6 +3032,557 @@
           "amount"
         ]
       },
+      "SwapMarketsResponse": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "1.0"
+            ]
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string",
+            "enum": [
+              "stacks:mainnet",
+              "stacks:testnet"
+            ]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "symbol": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "decimals": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "providers": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "bitflow",
+                          "velar",
+                          "alex"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "assetId",
+                    "symbol",
+                    "name",
+                    "decimals",
+                    "providers"
+                  ]
+                }
+              },
+              "sources": {
+                "type": "object",
+                "properties": {
+                  "bitflow": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "ok",
+                          "unavailable"
+                        ]
+                      },
+                      "count": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "reason": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "count",
+                      "reason"
+                    ]
+                  },
+                  "velar": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "ok",
+                          "unavailable"
+                        ]
+                      },
+                      "count": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "reason": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "count",
+                      "reason"
+                    ]
+                  },
+                  "alex": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "ok",
+                          "unavailable"
+                        ]
+                      },
+                      "count": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "reason": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "count",
+                      "reason"
+                    ]
+                  }
+                },
+                "required": [
+                  "bitflow",
+                  "velar",
+                  "alex"
+                ]
+              }
+            },
+            "required": [
+              "items",
+              "sources"
+            ]
+          },
+          "context": {
+            "$ref": "#/components/schemas/Context"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "network",
+          "data",
+          "context"
+        ]
+      },
+      "SwapComparisonResponse": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "1.0"
+            ]
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string",
+            "enum": [
+              "stacks:mainnet",
+              "stacks:testnet"
+            ]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "assets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "symbol": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "decimals": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "providers": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "bitflow",
+                          "velar",
+                          "alex"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "assetId",
+                    "symbol",
+                    "name",
+                    "decimals",
+                    "providers"
+                  ]
+                }
+              },
+              "offers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "enum": [
+                        "bitflow",
+                        "velar",
+                        "alex"
+                      ]
+                    },
+                    "rank": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "executable",
+                        "quote_only"
+                      ]
+                    },
+                    "inputAsset": {
+                      "type": "string"
+                    },
+                    "outputAsset": {
+                      "type": "string"
+                    },
+                    "amountIn": {
+                      "type": "string",
+                      "pattern": "^[0-9]+$"
+                    },
+                    "amountOut": {
+                      "type": "string",
+                      "pattern": "^[0-9]+$"
+                    },
+                    "minimumAmountOut": {
+                      "type": "string",
+                      "pattern": "^[0-9]+$"
+                    },
+                    "fee": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "asset": {
+                          "type": "string"
+                        },
+                        "quantity": {
+                          "type": "string",
+                          "pattern": "^[0-9]+$"
+                        }
+                      },
+                      "required": [
+                        "asset",
+                        "quantity"
+                      ]
+                    },
+                    "priceImpactBps": {
+                      "type": [
+                        "number",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "route": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "targetContract": {
+                      "type": "string"
+                    },
+                    "observedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "evidenceSource": {
+                      "type": "string"
+                    },
+                    "executionReason": {
+                      "type": "string"
+                    },
+                    "walletCall": {
+                      "type": "object",
+                      "properties": {
+                        "contractId": {
+                          "type": "string"
+                        },
+                        "functionName": {
+                          "type": "string"
+                        },
+                        "functionArgs": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^0x[0-9a-f]+$/i"
+                          }
+                        },
+                        "postConditions": {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "stx-postcondition"
+                                    ]
+                                  },
+                                  "address": {
+                                    "type": "string"
+                                  },
+                                  "condition": {
+                                    "type": "string",
+                                    "enum": [
+                                      "lte",
+                                      "eq",
+                                      "gte"
+                                    ]
+                                  },
+                                  "amount": {
+                                    "type": "string",
+                                    "pattern": "^[0-9]+$"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "address",
+                                  "condition",
+                                  "amount"
+                                ]
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "ft-postcondition"
+                                    ]
+                                  },
+                                  "address": {
+                                    "type": "string"
+                                  },
+                                  "condition": {
+                                    "type": "string",
+                                    "enum": [
+                                      "lte",
+                                      "eq",
+                                      "gte"
+                                    ]
+                                  },
+                                  "amount": {
+                                    "type": "string",
+                                    "pattern": "^[0-9]+$"
+                                  },
+                                  "asset": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "address",
+                                  "condition",
+                                  "amount",
+                                  "asset"
+                                ]
+                              }
+                            ]
+                          },
+                          "minItems": 1
+                        },
+                        "postConditionMode": {
+                          "type": "string",
+                          "enum": [
+                            "deny",
+                            "allow"
+                          ]
+                        },
+                        "network": {
+                          "type": "string",
+                          "enum": [
+                            "mainnet"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "contractId",
+                        "functionName",
+                        "functionArgs",
+                        "postConditions",
+                        "postConditionMode",
+                        "network"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "rank",
+                    "status",
+                    "inputAsset",
+                    "outputAsset",
+                    "amountIn",
+                    "amountOut",
+                    "minimumAmountOut",
+                    "fee",
+                    "priceImpactBps",
+                    "route",
+                    "targetContract",
+                    "observedAt",
+                    "expiresAt",
+                    "evidenceSource",
+                    "executionReason"
+                  ]
+                }
+              },
+              "unavailable": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "provider": {
+                      "type": "string",
+                      "enum": [
+                        "bitflow",
+                        "velar",
+                        "alex"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "reason"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "assets",
+              "offers",
+              "unavailable"
+            ]
+          },
+          "context": {
+            "$ref": "#/components/schemas/Context"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "network",
+          "data",
+          "context"
+        ]
+      },
+      "SwapComparisonRequest": {
+        "type": "object",
+        "properties": {
+          "network": {
+            "type": "string",
+            "enum": [
+              "mainnet"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "inputAsset": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "^stacks:mainnet:(native:stx|contract:S[PM][A-Z0-9]{25,41}\\.[A-Za-z0-9\\-_]+:[A-Za-z0-9\\-_$.]+)$"
+          },
+          "outputAsset": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "^stacks:mainnet:(native:stx|contract:S[PM][A-Z0-9]{25,41}\\.[A-Za-z0-9\\-_]+:[A-Za-z0-9\\-_$.]+)$"
+          },
+          "amount": {
+            "type": "string",
+            "maxLength": 39,
+            "pattern": "^[0-9]+$"
+          },
+          "slippageBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 300,
+            "default": 50
+          }
+        },
+        "required": [
+          "network",
+          "inputAsset",
+          "outputAsset",
+          "amount"
+        ]
+      },
       "PlanResponse": {
         "type": "object",
         "properties": {
@@ -5175,6 +5726,202 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/QuoteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or network mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credentials do not allow this request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit reached. Retry after the number of seconds in retryAfter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/swaps/markets": {
+      "get": {
+        "security": [
+          {
+            "apiKey": []
+          },
+          {
+            "walletSession": []
+          },
+          {
+            "clientId": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "mainnet"
+              ],
+              "description": "Swap catalogs are mainnet-only."
+            },
+            "required": true,
+            "description": "Swap catalogs are mainnet-only.",
+            "name": "network",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Live mainnet tokens listed by Bitflow, Velar and ALEX",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapMarketsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or network mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credentials do not allow this request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit reached. Retry after the number of seconds in retryAfter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/swaps/quotes": {
+      "post": {
+        "security": [
+          {
+            "apiKey": []
+          },
+          {
+            "walletSession": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapComparisonRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ranked mainnet swap quotes from Bitflow, Velar and ALEX",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapComparisonResponse"
                 }
               }
             }
