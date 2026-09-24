@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { PlanStep, Quote } from "@stacks-capital/client";
 import { canSign, clearPending, loadPending, pendingKey, reviewQuote, savePending, stageFor } from "./earn.ts";
-import { askWallet, encodePostCondition, toWalletRequest } from "./signing.ts";
+import { askWallet, askWalletCall, encodePostCondition, toWalletCallRequest, toWalletRequest } from "./signing.ts";
 
 const SBTC = "stacks:mainnet:contract:SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token:sbtc-token";
 const NOW = new Date("2026-09-18T12:00:00.000Z");
@@ -168,6 +168,7 @@ describe("what the wallet is asked to sign", () => {
     assert.equal(request.params.functionArgs.length, 4);
     assert.ok(request.params.functionArgs.every((argument) => /^0x[0-9a-f]+$/.test(argument)));
     assert.equal(request.params.postConditionMode, "deny");
+    assert.ok(request.params.postConditions.every((condition) => /^[0-9a-f]+$/i.test(condition)));
   });
 
   it("keeps the post conditions that protect the user", () => {
@@ -251,6 +252,32 @@ describe("asking the wallet", () => {
     assert.deepEqual(answer, { kind: "unknown", result: { error: "extension crashed" } });
   });
 
+  it("reads Leather's nested error message instead of saying the wallet did not answer", async () => {
+    const answer = await askWallet(
+      {
+        request: async () => {
+          throw { error: { code: -32603, message: "Uint8Array list expected" } };
+        },
+      },
+      "leather",
+      request,
+      allowed,
+    );
+    assert.deepEqual(answer, { kind: "unknown", result: { error: "Uint8Array list expected" } });
+  });
+
+  it("treats a resolved Leather error envelope as a failure", async () => {
+    const answer = await askWallet(
+      {
+        request: async () => ({ error: { code: -32602, message: "Invalid params" } }),
+      },
+      "leather",
+      request,
+      allowed,
+    );
+    assert.deepEqual(answer, { kind: "unknown", result: { error: "Invalid params" } });
+  });
+
   it("refuses to open the wallet when SDK validation failed", async () => {
     await assert.rejects(
       () =>
@@ -260,5 +287,40 @@ describe("asking the wallet", () => {
         }),
       /failed SDK validation/,
     );
+  });
+});
+
+describe("asking the wallet for a provider swap call", () => {
+  const call = {
+    contractId: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-swap-router-v-1-1",
+    functionName: "swap-simple-multi",
+    functionArgs: ["0x0b000000010c"],
+    postConditions: [
+      { type: "stx-postcondition" as const, address: OWNER, condition: "lte" as const, amount: "1000000" },
+    ],
+    postConditionMode: "deny" as const,
+    network: "mainnet" as const,
+  };
+
+  it("opens the wallet without claiming registry validation", async () => {
+    const request = toWalletCallRequest(call);
+    assert.equal(request.method, "stx_callContract");
+    assert.equal(request.params.contract, call.contractId);
+    assert.ok(request.params.postConditions.every((condition) => /^[0-9a-f]+$/i.test(condition)));
+    const answer = await askWalletCall({ request: async () => ({ result: { txid: "0xswap" } }) }, "leather", request);
+    assert.deepEqual(answer, { kind: "answered", result: { txid: "0xswap" } });
+  });
+
+  it("treats a wallet decline as a rejection, not a broadcast", async () => {
+    const answer = await askWalletCall(
+      {
+        request: async () => {
+          throw { code: 4001, message: "User rejected the request" };
+        },
+      },
+      "leather",
+      toWalletCallRequest(call),
+    );
+    assert.equal(answer.kind, "rejected");
   });
 });
