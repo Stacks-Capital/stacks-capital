@@ -2,10 +2,19 @@ import { createStacksCapital } from "@stacks-capital/sdk";
 import { startDemoCapitalApi } from "./demo-server.ts";
 import { FALLBACK_SANDBOX_OWNER, getDisposableMnemonic } from "./disposable-test-account.ts";
 import { ownerFromMnemonic, signUnsignedPlan } from "./host-sign.ts";
-import { runZestSupply, runZestWithdrawSupply, stakingIsDisabled } from "./program.ts";
+import {
+  PARTNER_SWAP_AMOUNT,
+  PARTNER_SWAP_INPUT,
+  PARTNER_SWAP_OUTPUT,
+  runSwapCompare,
+  runZestSupply,
+  runZestWithdrawSupply,
+  stakingIsDisabled,
+} from "./program.ts";
+import { readPartnerServerEnv } from "./server-env.ts";
 
 const live = process.argv.includes("--live");
-const apiBase = process.env.CAPITAL_API_URL;
+const { apiUrl: apiBase, apiKey } = readPartnerServerEnv();
 let mnemonic = "";
 try {
   mnemonic = getDisposableMnemonic(process.env.CAPITAL_MNEMONIC);
@@ -29,6 +38,7 @@ try {
     apiBase: demo?.url ?? apiBase ?? "",
     network: "mainnet",
     owner,
+    ...(apiKey === undefined ? {} : { apiKey }),
   });
   console.log("\n[Entry: Zest Supply]");
   console.log(`  quote: ${supplyResult.quote.id} executable=${String(supplyResult.quote.executable)}`);
@@ -53,6 +63,7 @@ try {
     apiBase: demo?.url ?? apiBase ?? "",
     network: "mainnet",
     owner,
+    ...(apiKey === undefined ? {} : { apiKey }),
   });
   console.log("\n[Exit: Zest Withdraw Supply]");
   console.log(`  quote: ${exitResult.quote.id} executable=${String(exitResult.quote.executable)}`);
@@ -71,6 +82,32 @@ try {
   } else {
     console.log("  host sign: skipped (set CAPITAL_MNEMONIC to sign locally without broadcasting)");
   }
+
+  const swapResult = await runSwapCompare(
+    {
+      apiBase: demo?.url ?? apiBase ?? "",
+      network: "mainnet",
+      owner,
+      ...(apiKey === undefined ? {} : { apiKey }),
+    },
+    {
+      inputAsset: PARTNER_SWAP_INPUT,
+      outputAsset: PARTNER_SWAP_OUTPUT,
+      amount: PARTNER_SWAP_AMOUNT,
+      slippageBps: 50,
+    },
+  );
+  console.log("\n[Swap: compare Bitflow, Velar, ALEX]");
+  console.log(`  catalog: ${String(swapResult.catalog.data.items.length)} tokens`);
+  console.log(
+    `  recommended: ${swapResult.recommended?.provider ?? "none"} min-out=${swapResult.recommended?.minimumAmountOut ?? "0"}`,
+  );
+  console.log(`  selected: ${swapResult.selected?.provider ?? "none"}`);
+  console.log(
+    `  unavailable: ${swapResult.comparison.data.unavailable.map((item) => item.provider).join(", ") || "none"}`,
+  );
+  const walletCall = swapResult.selected?.walletCall;
+  console.log(`  walletCall: ${walletCall === undefined ? "none" : walletCall.functionName}`);
 
   console.log(`\n  staking enabled: ${String(!stakingIsDisabled())}`);
 } finally {
