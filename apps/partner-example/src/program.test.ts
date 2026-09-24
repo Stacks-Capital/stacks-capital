@@ -11,7 +11,15 @@ import {
   revokeDisposableCredentials,
 } from "./disposable-test-account.ts";
 import { ownerFromMnemonic, signUnsignedPlan } from "./host-sign.ts";
-import { runZestSupply, runZestWithdrawSupply, stakingIsDisabled } from "./program.ts";
+import {
+  PARTNER_SWAP_AMOUNT,
+  PARTNER_SWAP_INPUT,
+  PARTNER_SWAP_OUTPUT,
+  runSwapCompare,
+  runZestSupply,
+  runZestWithdrawSupply,
+  stakingIsDisabled,
+} from "./program.ts";
 
 function isCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
@@ -125,6 +133,69 @@ describe("partner example", () => {
       () => signUnsignedPlan(result.plan, DISPOSABLE_TEST_MNEMONIC, "mainnet"),
       (error: unknown) => isCode(error, "PLAN_INVALID"),
     );
+  });
+
+  it("sends the server API key as a Bearer token and never from a query string", async () => {
+    const token = `key_0123456789abcdef.${"A".repeat(43)}`;
+    const seen: { url: string; authorization: string | null }[] = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = String(input);
+      seen.push({
+        url,
+        authorization: new Headers(init?.headers).get("authorization"),
+      });
+      return fetch(url, init);
+    };
+    await runZestSupply({
+      apiBase: demo.url,
+      network: "mainnet",
+      owner: FALLBACK_SANDBOX_OWNER,
+      apiKey: token,
+      fetchImpl,
+    });
+    assert.equal(seen[0]?.authorization, `Bearer ${token}`);
+    assert.equal(new URL(seen[0]?.url ?? "").search, "");
+  });
+
+  it("compares mainnet swap venues through the SDK client and keeps an optional override", async () => {
+    const recommended = await runSwapCompare(
+      {
+        apiBase: demo.url,
+        network: "mainnet",
+        owner: FALLBACK_SANDBOX_OWNER,
+      },
+      {
+        inputAsset: PARTNER_SWAP_INPUT,
+        outputAsset: PARTNER_SWAP_OUTPUT,
+        amount: PARTNER_SWAP_AMOUNT,
+        slippageBps: 50,
+      },
+    );
+    assert.ok(recommended.catalog.data.items.length > 0);
+    assert.equal(recommended.recommended?.provider, "velar");
+    assert.equal(recommended.selected?.provider, "velar");
+    assert.equal(recommended.selected?.rank, 1);
+    assert.equal(
+      recommended.comparison.data.unavailable.some((item) => item.provider === "alex"),
+      true,
+    );
+
+    const overridden = await runSwapCompare(
+      {
+        apiBase: demo.url,
+        network: "mainnet",
+        owner: FALLBACK_SANDBOX_OWNER,
+      },
+      {
+        inputAsset: PARTNER_SWAP_INPUT,
+        outputAsset: PARTNER_SWAP_OUTPUT,
+        amount: PARTNER_SWAP_AMOUNT,
+        provider: "bitflow",
+      },
+    );
+    assert.equal(overridden.recommended?.provider, "velar");
+    assert.equal(overridden.selected?.provider, "bitflow");
+    assert.equal(overridden.selected?.walletCall?.functionName, "swap-simple-multi");
   });
 
   it("refuses to mint a plan when the API is missing", async () => {
