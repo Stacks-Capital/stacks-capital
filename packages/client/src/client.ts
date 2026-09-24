@@ -27,6 +27,8 @@ import type {
   Session,
   SignatureOutcome,
   StartedWorkflow,
+  SwapMarketCatalog,
+  SwapQuoteComparison,
   Workflow,
   WorkflowSummary,
   WebhookEndpoint,
@@ -233,6 +235,27 @@ export type CapitalClient = {
     },
     options?: CallOptions,
   ): Promise<Result<QuotedPlan>>;
+
+  /**
+   * Lists live mainnet tokens from Bitflow, Velar and ALEX.
+   * Identities are exact contract IDs. A venue catalog failure never removes tokens listed by the others.
+   */
+  swapMarkets(options?: CallOptions): Promise<Result<SwapMarketCatalog>>;
+
+  /**
+   * Compares exact-asset mainnet quotes from Bitflow, Velar and ALEX.
+   * Offers are ranked by guaranteed minimum output. A provider failure does not hide healthy offers.
+   */
+  swapQuotes(
+    input: {
+      inputAsset: string;
+      outputAsset: string;
+      amount: string;
+      slippageBps?: number;
+      owner?: string;
+    },
+    options?: CallOptions,
+  ): Promise<Result<SwapQuoteComparison>>;
 
   /**
    * Initiates an execution workflow bound to an existing quote.
@@ -473,6 +496,24 @@ export function createClient(options: ClientOptions): CapitalClient {
       call<QuotedPlan>({
         method: "POST",
         path: "/v1/quotes",
+        body: { network, ...input },
+        signal: call_?.signal,
+        retry: false,
+      }),
+
+    swapMarkets: (call_) =>
+      call<SwapMarketCatalog>({
+        method: "GET",
+        path: "/v1/swaps/markets",
+        query: { network },
+        signal: call_?.signal,
+        retry: true,
+      }),
+
+    swapQuotes: (input, call_) =>
+      call<SwapQuoteComparison>({
+        method: "POST",
+        path: "/v1/swaps/quotes",
         body: { network, ...input },
         signal: call_?.signal,
         retry: false,
