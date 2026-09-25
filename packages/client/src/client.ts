@@ -25,10 +25,14 @@ import type {
   QuotedPlan,
   Result,
   Session,
+  AttachedBroadcast,
+  CancelledWorkflow,
   SignatureOutcome,
   StartedWorkflow,
   SwapMarketCatalog,
   SwapQuoteComparison,
+  PreparedSbtcDeposit,
+  NotifiedSbtcDeposit,
   Workflow,
   WorkflowSummary,
   WebhookEndpoint,
@@ -258,6 +262,38 @@ export type CapitalClient = {
   ): Promise<Result<SwapQuoteComparison>>;
 
   /**
+   * Builds the official mainnet sBTC P2TR deposit address and scripts.
+   * This is not a mint. The host wallet still has to send Bitcoin and notify Emily.
+   */
+  prepareSbtcDeposit(
+    input: {
+      stacksRecipient: string;
+      amountSats: string;
+      maxSignerFeeSats: string;
+      reclaimPublicKey: string;
+      reclaimLockTime?: number;
+    },
+    options?: CallOptions,
+  ): Promise<Result<PreparedSbtcDeposit>>;
+
+  /**
+   * Tells Emily about a broadcast Bitcoin deposit. Accepted/pending is tracking, never completion.
+   */
+  notifySbtcDeposit(
+    input: {
+      bitcoinTxid: string;
+      bitcoinTxOutputIndex?: number;
+      transactionHex?: string;
+      depositScript: string;
+      reclaimScript: string;
+      stacksRecipient: string;
+      amountSats: string;
+      maxSignerFeeSats: string;
+    },
+    options?: CallOptions,
+  ): Promise<Result<NotifiedSbtcDeposit>>;
+
+  /**
    * Initiates an execution workflow bound to an existing quote.
    * Failure Semantics: Uses idempotencyKey to guarantee exactly-once workflow creation. Never auto-retried.
    * @throws {CapitalFinancialError} If quote expired or plan is invalid.
@@ -282,6 +318,22 @@ export type CapitalClient = {
     input: { stepId: string; walletResult: unknown },
     options?: CallOptions,
   ): Promise<Result<SignatureOutcome>>;
+
+  /**
+   * Cancels a workflow that is still awaiting a signature. Broadcast-unknown workflows cannot use
+   * this path — a missing txid is not proof that nothing moved.
+   */
+  cancelWorkflow(workflowId: string, options?: CallOptions): Promise<Result<CancelledWorkflow>>;
+
+  /**
+   * Attaches a Bitcoin txid found after an uncertain wallet answer and notifies Emily when the
+   * deposit script matches the on-chain output.
+   */
+  attachFoundBroadcast(
+    workflowId: string,
+    input: { txid: string; reclaimPublicKey?: string },
+    options?: CallOptions,
+  ): Promise<Result<AttachedBroadcast>>;
 
   /**
    * Creates a new signed webhook endpoint for receiving async event notifications.
@@ -519,6 +571,24 @@ export function createClient(options: ClientOptions): CapitalClient {
         retry: false,
       }),
 
+    prepareSbtcDeposit: (input, call_) =>
+      call<PreparedSbtcDeposit>({
+        method: "POST",
+        path: "/v1/sbtc/deposits/prepare",
+        body: { network, ...input },
+        signal: call_?.signal,
+        retry: false,
+      }),
+
+    notifySbtcDeposit: (input, call_) =>
+      call<NotifiedSbtcDeposit>({
+        method: "POST",
+        path: "/v1/sbtc/deposits/notify",
+        body: { network, ...input },
+        signal: call_?.signal,
+        retry: false,
+      }),
+
     startWorkflow: (input, call_) =>
       call<StartedWorkflow>({
         method: "POST",
@@ -532,6 +602,24 @@ export function createClient(options: ClientOptions): CapitalClient {
       call<SignatureOutcome>({
         method: "POST",
         path: `/v1/workflows/${encodeURIComponent(workflowId)}/signature`,
+        body: { network, ...input },
+        signal: call_?.signal,
+        retry: false,
+      }),
+
+    cancelWorkflow: (workflowId, call_) =>
+      call<CancelledWorkflow>({
+        method: "POST",
+        path: `/v1/workflows/${encodeURIComponent(workflowId)}/cancel`,
+        body: { network },
+        signal: call_?.signal,
+        retry: false,
+      }),
+
+    attachFoundBroadcast: (workflowId, input, call_) =>
+      call<AttachedBroadcast>({
+        method: "POST",
+        path: `/v1/workflows/${encodeURIComponent(workflowId)}/broadcast`,
         body: { network, ...input },
         signal: call_?.signal,
         retry: false,
