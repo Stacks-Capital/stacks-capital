@@ -109,7 +109,8 @@ export function Earn({
   // A finished flow is not pending any more, so a reload starts fresh.
   useEffect(() => {
     if (scope !== null && (stage === "done" || stage === "recovery")) clearPending(storage(), scope);
-  }, [scope, stage]);
+    if (stage === "recovery" && started !== null) setStarted(null);
+  }, [scope, stage, started]);
 
   const allOptions = earnOptions.data?.data.items ?? [];
   const comparison = useMemo(() => compareEarn(allOptions, new Date()), [allOptions]);
@@ -719,6 +720,14 @@ export function Earn({
                   ? `Whether anything was broadcast is unknown, so this workflow is being investigated rather than sent again. State ${workflowState}, workflow ${workflowId}.`
                   : `A transaction was broadcast as ${txid}. State ${workflowState}, workflow ${workflowId}.`,
               recovery: [
+                {
+                  type: "resume",
+                  label: "Continue",
+                  action: () => {
+                    setQuoted(null);
+                    setStarted(null);
+                  },
+                },
                 {
                   type: "support",
                   label: "Copy workflow id",
