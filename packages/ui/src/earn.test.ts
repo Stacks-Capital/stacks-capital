@@ -2,7 +2,17 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { PlanStep, Quote } from "@stacks-capital/client";
 import { canSign, clearPending, loadPending, pendingKey, reviewQuote, savePending, stageFor } from "./earn.ts";
-import { askWallet, askWalletCall, encodePostCondition, toWalletCallRequest, toWalletRequest } from "./signing.ts";
+import {
+  askBitcoinTransfer,
+  askWallet,
+  askWalletCall,
+  bitcoinTransferTxid,
+  findRecentBitcoinDepositTxid,
+  encodePostCondition,
+  toBitcoinTransferRequest,
+  toWalletCallRequest,
+  toWalletRequest,
+} from "./signing.ts";
 
 const SBTC = "stacks:mainnet:contract:SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token:sbtc-token";
 const NOW = new Date("2026-09-18T12:00:00.000Z");
@@ -197,6 +207,64 @@ describe("what the wallet is asked to sign", () => {
   it("refuses a step it cannot sign rather than sending something else", () => {
     const bitcoin: PlanStep = { ...step, payload: { kind: "bitcoin_deposit" } };
     assert.throws(() => toWalletRequest(bitcoin, allowed), /only sign Stacks contract calls/);
+    const transfer = toBitcoinTransferRequest(
+      "bc1pt6aahs3cxh5xs3sj4v72ep8ntgau5gw9p2cfqqkxw42hkq890g8s9edjwf",
+      "100000",
+    );
+    assert.equal(transfer.method, "sendTransfer");
+    assert.equal(transfer.params.recipients[0]?.amount, "100000");
+    assert.equal(
+      toBitcoinTransferRequest(
+        "bc1pt6aahs3cxh5xs3sj4v72ep8ntgau5gw9p2cfqqkxw42hkq890g8s9edjwf",
+        "100000",
+        "xverse",
+      ).params.recipients[0]?.amount,
+      100000,
+    );
+    assert.throws(() => toBitcoinTransferRequest("bc1qnottaprootxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "1"), /P2TR/);
+  });
+
+  it("asks sendTransfer for a deposit and reads the Bitcoin txid", async () => {
+    const request = toBitcoinTransferRequest(
+      "bc1pt6aahs3cxh5xs3sj4v72ep8ntgau5gw9p2cfqqkxw42hkq890g8s9edjwf",
+      "100000",
+    );
+    const answer = await askBitcoinTransfer(
+      { request: async () => ({ result: { txid: `0x${"ab".repeat(32)}` } }) },
+      "leather",
+      request,
+    );
+    assert.equal(answer.kind, "answered");
+    assert.equal(bitcoinTransferTxid(answer.kind === "answered" ? answer.result : null), "ab".repeat(32));
+    assert.equal(bitcoinTransferTxid({ txId: "cd".repeat(32) }), "cd".repeat(32));
+    assert.equal(bitcoinTransferTxid({ txids: [`0x${"11".repeat(32)}`] }), "11".repeat(32));
+  });
+
+  it("finds a matching Bitcoin deposit without the user supplying a txid", async () => {
+    const txid = await findRecentBitcoinDepositTxid(
+      {
+        fromAddress: "bc1qafcdcntnk890qgvr77p39skqcj2l5fang0x3ch",
+        toAddress: "bc1pjjdy7cp482t96s5ue06733t3t6s04hpn4m9rk8h04m8hka56kz8q624kqc",
+        amountSats: "1018",
+      },
+      (async () =>
+        new Response(
+          JSON.stringify([
+            {
+              txid: "8b577d2ab0f9f2131070d77e38290bdfeb5f9b785ec50597dbf58f2ee653f4e3",
+              vin: [{ prevout: { scriptpubkey_address: "bc1qafcdcntnk890qgvr77p39skqcj2l5fang0x3ch" } }],
+              vout: [
+                {
+                  value: 1018,
+                  scriptpubkey_address: "bc1pjjdy7cp482t96s5ue06733t3t6s04hpn4m9rk8h04m8hka56kz8q624kqc",
+                },
+              ],
+            },
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } },
+        )) as typeof fetch,
+    );
+    assert.equal(txid, "8b577d2ab0f9f2131070d77e38290bdfeb5f9b785ec50597dbf58f2ee653f4e3");
   });
 
   it("refuses to build a wallet request when SDK validation failed", () => {
