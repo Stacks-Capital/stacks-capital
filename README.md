@@ -78,7 +78,7 @@ Workflows currently reach `STEP_CONFIRMED` from chain evidence. Completion requi
 
 ### The application
 
-Ten screens, each built only on public SDK exports, enforced in CI: Overview, Deposit BTC, Earn, Borrow, Swap, Liquidity, Staking, Positions, Risk and Activity.
+Ten screens, each built only on public SDK exports, enforced in CI: Overview, Bridge, Earn, Borrow, Swap, Liquidity, Staking, Positions, Risk and Activity.
 
 Eight canonical states are centralised rather than reinvented per screen: loading, empty, partial, unsupported, stale or disputed, review, submitted, failed or delayed. Risk is never communicated by colour alone, every amount carries its asset unit, tables become labelled cards below tablet width, and workflow progress is announced through live regions.
 
