@@ -1,13 +1,26 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  assertSafeDeposit,
+  assertSafeWithdrawPayout,
+  bitcoinRecipientFromAddress,
+  BURN_STACKS_RECIPIENTS,
   calculateDepositAccounting,
   calculateWithdrawalAccounting,
   findLatestSbtcWorkflow,
+  loadIgnoredSbtcWorkflows,
+  rememberIgnoredSbtcWorkflow,
   isAttemptBroadcastUnknown,
+  isPlaceholderBtcRecipient,
+  PLACEHOLDER_BTC_RECIPIENT,
+  shouldResumeSbtcWorkflow,
+  sbtcWorkflowBlocksComposer,
   stageForDeposit,
   stageForWithdrawal,
+  depositStacksRecipientFromPlan,
+  isPlaceholderStacksRecipient,
   validateBtcRecipient,
+  withdrawRecipientFromPlan,
 } from "./sbtc.ts";
 
 describe("sBTC bridge and withdrawal UI utilities", () => {
@@ -41,10 +54,10 @@ describe("sBTC bridge and withdrawal UI utilities", () => {
 
   describe("recipient validation", () => {
     it("validates P2WPKH version 04 with 20-byte hash", () => {
-      const valid = validateBtcRecipient("04:00112233445566778899aabbccddeeff00112233");
+      const valid = validateBtcRecipient("04:751e76e8199196d454941c45d1b3a323f1433bd6");
       assert.equal(valid.valid, true);
       assert.equal(valid.version, "04");
-      assert.equal(valid.hashbytes, "00112233445566778899aabbccddeeff00112233");
+      assert.equal(valid.hashbytes, "751e76e8199196d454941c45d1b3a323f1433bd6");
     });
 
     it("validates P2TR version 06 with 32-byte hash", () => {
@@ -62,6 +75,114 @@ describe("sBTC bridge and withdrawal UI utilities", () => {
       assert.equal(validateBtcRecipient("04:001122").valid, false); // too short for 04
       assert.equal(validateBtcRecipient("06:001122").valid, false); // too short for 06
     });
+
+    it("encodes a connected P2WPKH address and refuses the fixture placeholder", () => {
+      const encoded = bitcoinRecipientFromAddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4");
+      assert.ok(!("error" in encoded));
+      assert.equal(encoded.recipient, "04:751e76e8199196d454941c45d1b3a323f1433bd6");
+      assert.equal(validateBtcRecipient("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4").valid, true);
+      assert.equal(validateBtcRecipient(PLACEHOLDER_BTC_RECIPIENT).valid, false);
+      assert.equal(isPlaceholderBtcRecipient("bc1qqqgjyv6y24n80zye42aueh0wluqpzg3ndy2ehs"), true);
+    });
+
+    it("blocks signing when the plan payout is missing, placeholder, or not the address on screen", () => {
+      const address = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
+      const encoded = "04:751e76e8199196d454941c45d1b3a323f1433bd6";
+      const plan = {
+        steps: [
+          {
+            payload: {
+              functionName: "initiate-withdrawal-request",
+              functionArgs: [
+                { type: "uint" },
+                {
+                  type: "tuple",
+                  value: {
+                    version: { type: "buff", hex: "04" },
+                    hashbytes: { type: "buff", hex: "751e76e8199196d454941c45d1b3a323f1433bd6" },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      };
+      assert.deepEqual(withdrawRecipientFromPlan(plan), {
+        version: "04",
+        hashbytes: "751e76e8199196d454941c45d1b3a323f1433bd6",
+      });
+      assert.equal(
+        assertSafeWithdrawPayout({
+          encodedRecipient: encoded,
+          destinationAddress: address,
+          connectedBitcoinAddress: address,
+          planRecipient: withdrawRecipientFromPlan(plan),
+          confirmedForeignAddress: false,
+        }).ok,
+        true,
+      );
+      assert.equal(
+        assertSafeWithdrawPayout({
+          encodedRecipient: PLACEHOLDER_BTC_RECIPIENT,
+          destinationAddress: PLACEHOLDER_BTC_RECIPIENT,
+          connectedBitcoinAddress: address,
+          planRecipient: { version: "04", hashbytes: "00112233445566778899aabbccddeeff00112233" },
+          confirmedForeignAddress: true,
+        }).ok,
+        false,
+      );
+      assert.equal(
+        assertSafeWithdrawPayout({
+          encodedRecipient: encoded,
+          destinationAddress: address,
+          connectedBitcoinAddress: "bc1qdifferent",
+          planRecipient: withdrawRecipientFromPlan(plan),
+          confirmedForeignAddress: false,
+        }).ok,
+        false,
+      );
+    });
+
+    it("blocks a deposit whose mint recipient or amount drifted from the connected wallet", () => {
+      assert.equal(
+        assertSafeDeposit({
+          depositAddress: "bc1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq59t8w5",
+          stacksRecipient: "SP123",
+          preparedAmountSats: "1404",
+          walletAddress: "SP123",
+          amountSats: "1404",
+          planRecipient: "SP123",
+        }).ok,
+        true,
+      );
+      assert.equal(
+        assertSafeDeposit({
+          depositAddress: "bc1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq59t8w5",
+          stacksRecipient: "SPOTHER",
+          preparedAmountSats: "1404",
+          walletAddress: "SP123",
+          amountSats: "1404",
+        }).ok,
+        false,
+      );
+      assert.equal(isPlaceholderStacksRecipient(BURN_STACKS_RECIPIENTS[0]), true);
+      assert.equal(
+        assertSafeDeposit({
+          depositAddress: "bc1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq59t8w5",
+          stacksRecipient: BURN_STACKS_RECIPIENTS[0],
+          preparedAmountSats: "1404",
+          walletAddress: BURN_STACKS_RECIPIENTS[0],
+          amountSats: "1404",
+        }).ok,
+        false,
+      );
+      assert.equal(
+        depositStacksRecipientFromPlan({
+          steps: [{ payload: { kind: "bitcoin_deposit", stacksRecipient: "SP123" } }],
+        }),
+        "SP123",
+      );
+    });
   });
 
   describe("accounting calculations", () => {
@@ -70,6 +191,13 @@ describe("sBTC bridge and withdrawal UI utilities", () => {
       assert.equal(acc.depositAmountSats, "100000");
       assert.equal(acc.maxSignerFeeSats, "2000");
       assert.equal(acc.minExpectedSbtcSats, "98000");
+    });
+
+    it("shows a zero mint when the signer fee consumes the whole deposit", () => {
+      const consumed = calculateDepositAccounting({ amountSats: "1000", maxFeeSats: "1000" });
+      assert.equal(consumed.minExpectedSbtcSats, "0");
+      const leftover = calculateDepositAccounting({ amountSats: "1000", maxFeeSats: "200" });
+      assert.equal(leftover.minExpectedSbtcSats, "800");
     });
 
     it("calculates withdrawal accounting with initially locked and refund", () => {
@@ -140,6 +268,47 @@ describe("sBTC bridge and withdrawal UI utilities", () => {
 
       const latestDeposit = findLatestSbtcWorkflow(workflows, "deposit_sbtc");
       assert.equal(latestDeposit?.id, "wf_3");
+    });
+
+    it("never resumes a prior workflow onto the bridge form, including failures", () => {
+      for (const state of [
+        "AWAITING_SIGNATURE",
+        "QUOTED",
+        "DRAFT",
+        "SUBMITTED",
+        "CONFIRMING",
+        "SIGNER_PROCESSING",
+        "COMPLETED",
+        "RECONCILED",
+        "BROADCAST_UNKNOWN",
+        "RECLAIMABLE",
+        "FAILED",
+        "ACTION_REQUIRED",
+      ]) {
+        assert.equal(shouldResumeSbtcWorkflow(state), false, state);
+        assert.equal(sbtcWorkflowBlocksComposer(state), false, state);
+      }
+      assert.equal(sbtcWorkflowBlocksComposer(null), false);
+    });
+
+    it("remembers a dismissed workflow id when sessionStorage is available", () => {
+      const memory = new Map<string, string>();
+      const previous = globalThis.sessionStorage;
+      Object.defineProperty(globalThis, "sessionStorage", {
+        configurable: true,
+        value: {
+          getItem: (key: string) => memory.get(key) ?? null,
+          setItem: (key: string, value: string) => {
+            memory.set(key, value);
+          },
+        },
+      });
+      try {
+        rememberIgnoredSbtcWorkflow("wf_da27713688c");
+        assert.deepEqual(loadIgnoredSbtcWorkflows(), ["wf_da27713688c"]);
+      } finally {
+        Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: previous });
+      }
     });
 
     it("flags missing txid or unknown outcome as needing investigation", () => {
