@@ -42,6 +42,9 @@ export function messageFor(error: unknown): { message: string; canRetry: boolean
       requestId: null,
     };
   }
+  if (error instanceof Error && error.message.trim() !== "") {
+    return { message: error.message, canRetry: false, requestId: null };
+  }
   return { message: "Something went wrong.", canRetry: false, requestId: null };
 }
 
@@ -138,6 +141,7 @@ export type ReviewState = {
   contract: string;
   planValidated: boolean;
   validationError?: string;
+  confirmLabel?: string;
   onConfirm?: () => void;
 };
 
@@ -149,6 +153,9 @@ export type SubmittedState = {
   workflowState?: string;
   differenceNote?: string;
   nextAction?: string;
+  /** Typical wait, labeled as an estimate, never as a completion clock. */
+  estimatedWait?: string;
+  timingNote?: string;
 };
 
 export type FailedDelayedRecovery = {
