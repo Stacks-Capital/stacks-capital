@@ -6,6 +6,7 @@ import {
   findApiKey,
   findClientApp,
   findSession,
+  touchSession,
   type KeyPrincipal,
   type PendingNonce,
   type SessionPrincipal,
@@ -21,6 +22,9 @@ export type Principal = KeyPrincipal | SessionPrincipal | ClientPrincipal;
 
 export const CLIENT_ID_HEADER = "x-capital-client-id";
 
+/** Hard ceiling if unused. Active sessions are extended on each authenticated request. */
+export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+
 export async function authenticate(c: Context, sql: Sql, now: Date): Promise<Principal> {
   const authorization = c.req.header("authorization");
   const origin = c.req.header("origin");
@@ -34,7 +38,10 @@ export async function authenticate(c: Context, sql: Sql, now: Date): Promise<Pri
       if (key !== null) return key;
     } else if (token.startsWith("ses_")) {
       const session = await findSession(sql, token, now);
-      if (session !== null) return session;
+      if (session !== null) {
+        await touchSession(sql, { sessionId: session.sessionId, now, ttlSeconds: SESSION_TTL_SECONDS });
+        return session;
+      }
     }
     throw new ApiError("UNAUTHORIZED", "Invalid or expired credentials");
   }
