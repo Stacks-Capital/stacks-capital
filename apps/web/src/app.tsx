@@ -1,8 +1,9 @@
 import { type CapitalClient, createClient } from "@stacks-capital/client";
 import type { CapitalError, StacksNetwork } from "@stacks-capital/core";
-import { CapitalProvider, useMarkets, useWorkflows } from "@stacks-capital/react";
+import { CapitalProvider, useCapital, useMarkets, useWorkflows } from "@stacks-capital/react";
 import {
   type ConnectedWallet,
+  connectBitcoinWallet,
   connectWallet,
   installedWallets,
   messageSigner,
@@ -29,15 +30,32 @@ import { Activity, Markets, Portfolio } from "./screens.tsx";
 import { Swap } from "./swapScreen.tsx";
 import { LiquidityScreen } from "./liquidityScreen.tsx";
 import { StakingScreen } from "./stakingScreen.tsx";
+import { WalletManager } from "./walletManager.tsx";
 
 import {
   getInitialSession,
   getInitialTab,
   NAV_TABS,
   type NavTab,
+  type StoredSession,
   STORAGE_SESSION_PREFIX,
   STORAGE_TAB_KEY,
 } from "./navigation.ts";
+
+function walletFromStored(session: StoredSession, network: StacksNetwork): ConnectedWallet {
+  return {
+    id: session.walletId,
+    address: session.address,
+    network,
+    ...(session.bitcoinAddress === undefined || session.bitcoinPublicKey === undefined
+      ? {}
+      : {
+          bitcoinAddress: session.bitcoinAddress,
+          bitcoinPublicKey: session.bitcoinPublicKey,
+          ...(session.bitcoinWalletId === undefined ? {} : { bitcoinWalletId: session.bitcoinWalletId }),
+        }),
+  };
+}
 
 function AppShell({
   network,
@@ -66,8 +84,16 @@ function AppShell({
   wallets: readonly WalletId[];
   client: CapitalClient;
 }) {
+  const { client: sessionClient } = useCapital();
   const [mode, setMode] = useState<ViewMode>("simple");
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [walletManagerOpen, setWalletManagerOpen] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [pendingBitcoin, setPendingBitcoin] = useState<{
+    walletId: WalletId;
+    address: string;
+    publicKey: string;
+  } | null>(null);
   const signedIn = sessionToken !== null;
 
   // Read block height from market data context
@@ -81,14 +107,30 @@ function AppShell({
     action: wf.action,
     state: wf.state,
     updatedAt: wf.updatedAt,
+    createdAt: wf.createdAt,
+    nextAction: wf.nextAction,
+    txId: wf.lastTxid,
   }));
+
+  async function cancelUnsignedWorkflow(workflowId: string) {
+    setCancellingId(workflowId);
+    setProblem(null);
+    try {
+      await sessionClient.cancelWorkflow(workflowId);
+      await workflowsQuery.refresh();
+    } catch (error) {
+      setProblem(error instanceof Error ? error : new Error("Could not cancel the unsigned workflow"));
+    } finally {
+      setCancellingId(null);
+    }
+  }
 
   function selectNetwork(next: StacksNetwork) {
     if (next === network) return;
     setNetwork(next);
     const sessionForNext = getInitialSession(next);
     if (sessionForNext) {
-      setWallet({ id: sessionForNext.walletId, address: sessionForNext.address, network: next });
+      setWallet(walletFromStored(sessionForNext, next));
       setSessionToken(sessionForNext.token);
     } else {
       setWallet(null);
@@ -101,9 +143,22 @@ function AppShell({
     setProblem(null);
     try {
       const connected = await connectWallet(id, network);
-      setWallet(connected);
+      const inheritedAddress = connected.bitcoinAddress ?? wallet?.bitcoinAddress ?? pendingBitcoin?.address;
+      const inheritedKey = connected.bitcoinPublicKey ?? wallet?.bitcoinPublicKey ?? pendingBitcoin?.publicKey;
+      const inheritedWalletId = connected.bitcoinWalletId ?? wallet?.bitcoinWalletId ?? pendingBitcoin?.walletId;
+      const withBitcoin =
+        inheritedAddress === undefined || inheritedKey === undefined
+          ? connected
+          : {
+              ...connected,
+              bitcoinAddress: inheritedAddress,
+              bitcoinPublicKey: inheritedKey,
+              ...(inheritedWalletId === undefined ? {} : { bitcoinWalletId: inheritedWalletId }),
+            };
+      setWallet(withBitcoin);
+      setPendingBitcoin(null);
       setSessionToken(null);
-      const result = await signIn(client, connected, messageSigner(id));
+      const result = await signIn(client, withBitcoin, messageSigner(id));
       if (result.ok) {
         setSessionToken(result.session.token);
       } else {
@@ -111,6 +166,32 @@ function AppShell({
       }
     } catch (error) {
       setProblem(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  async function connectBitcoin(id: WalletId) {
+    setProblem(null);
+    try {
+      const bitcoin = await connectBitcoinWallet(id, network);
+      if (wallet === null) {
+        setPendingBitcoin({ walletId: bitcoin.walletId, address: bitcoin.address, publicKey: bitcoin.publicKey });
+        return;
+      }
+      setWallet({
+        ...wallet,
+        bitcoinAddress: bitcoin.address,
+        bitcoinPublicKey: bitcoin.publicKey,
+        bitcoinWalletId: bitcoin.walletId,
+      });
+    } catch (error) {
+      setProblem(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  function disconnectBitcoin() {
+    setPendingBitcoin(null);
+    if (wallet !== null) {
+      setWallet({ id: wallet.id, address: wallet.address, network: wallet.network });
     }
   }
 
@@ -145,6 +226,7 @@ function AppShell({
         onDisconnect={disconnect}
         onOpenDrawer={() => setDrawerOpen(true)}
         drawerBadgeCount={recentWorkflows.length}
+        onOpenWalletManager={() => setWalletManagerOpen(true)}
       />
 
       <ShellNavigation
@@ -186,15 +268,19 @@ function AppShell({
           </>
         )}
 
-        {tab === "Deposit BTC" && (
+        {tab === "Bridge" && (
           <>
             <ScreenHeader
-              title="Deposit & Withdraw Bitcoin"
-              subtitle="Move native Bitcoin to sBTC on Stacks or withdraw sBTC back to Bitcoin."
+              title="Bridge"
+              subtitle="Official sBTC: native Bitcoin to Stacks, or sBTC back to Bitcoin."
               mode={mode}
               onModeChange={setMode}
             />
-            <DepositBtcScreen wallet={wallet} signedIn={signedIn} />
+            <DepositBtcScreen
+              wallet={wallet}
+              signedIn={signedIn}
+              onOpenWalletManager={() => setWalletManagerOpen(true)}
+            />
           </>
         )}
 
@@ -295,7 +381,26 @@ function AppShell({
         )}
       </main>
 
-      <WorkflowDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} workflows={recentWorkflows} />
+      <WorkflowDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        workflows={recentWorkflows}
+        onCancelWorkflow={(id) => void cancelUnsignedWorkflow(id)}
+        cancellingId={cancellingId}
+      />
+      <WalletManager
+        open={walletManagerOpen}
+        network={network}
+        installed={wallets}
+        stacksAddress={wallet?.address ?? null}
+        stacksWalletId={wallet?.id ?? null}
+        bitcoinAddress={wallet?.bitcoinAddress ?? pendingBitcoin?.address ?? null}
+        bitcoinWalletId={wallet?.bitcoinWalletId ?? pendingBitcoin?.walletId ?? null}
+        onClose={() => setWalletManagerOpen(false)}
+        onConnectStacks={(id) => void connect(id)}
+        onConnectBitcoin={(id) => void connectBitcoin(id)}
+        onDisconnectBitcoin={disconnectBitcoin}
+      />
     </div>
   );
 }
@@ -305,7 +410,7 @@ export function App({ config }: { config: WebConfig }) {
   const [network, setNetwork] = useState<StacksNetwork>(config.network);
   const initialSession = useMemo(() => getInitialSession(config.network), [config.network]);
   const [wallet, setWallet] = useState<ConnectedWallet | null>(
-    initialSession ? { id: initialSession.walletId, address: initialSession.address, network: config.network } : null,
+    initialSession ? walletFromStored(initialSession, config.network) : null,
   );
   const [sessionToken, setSessionToken] = useState<string | null>(initialSession?.token ?? null);
   const [problem, setProblem] = useState<CapitalError | Error | null>(null);
@@ -329,7 +434,14 @@ export function App({ config }: { config: WebConfig }) {
         if (sessionToken && wallet) {
           window.localStorage.setItem(
             `${STORAGE_SESSION_PREFIX}${network}`,
-            JSON.stringify({ address: wallet.address, token: sessionToken, walletId: wallet.id }),
+            JSON.stringify({
+              address: wallet.address,
+              token: sessionToken,
+              walletId: wallet.id,
+              ...(wallet.bitcoinAddress === undefined ? {} : { bitcoinAddress: wallet.bitcoinAddress }),
+              ...(wallet.bitcoinPublicKey === undefined ? {} : { bitcoinPublicKey: wallet.bitcoinPublicKey }),
+              ...(wallet.bitcoinWalletId === undefined ? {} : { bitcoinWalletId: wallet.bitcoinWalletId }),
+            }),
           );
         } else if (sessionToken === null) {
           window.localStorage.removeItem(`${STORAGE_SESSION_PREFIX}${network}`);
