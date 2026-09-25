@@ -325,6 +325,37 @@ export const SignatureOutcome = z
   })
   .openapi("SignatureOutcome");
 
+export const CancelWorkflowRequest = z
+  .object({
+    network: Network,
+  })
+  .openapi("CancelWorkflowRequest");
+
+export const CancelledWorkflow = z
+  .object({
+    state: z.string(),
+    nextAction: z.string(),
+  })
+  .openapi("CancelledWorkflow");
+
+export const AttachBroadcastRequest = z
+  .object({
+    network: Network,
+    txid: z.string().regex(/^(?:0x)?[0-9a-fA-F]{64}$/),
+    reclaimPublicKey: z.string().max(130).optional(),
+  })
+  .openapi("AttachBroadcastRequest");
+
+export const AttachedBroadcast = z
+  .object({
+    state: z.string(),
+    nextAction: z.string(),
+    txid: z.string(),
+    emilyNotified: z.boolean(),
+    emilyStatus: z.string().nullable(),
+  })
+  .openapi("AttachedBroadcast");
+
 export const QuoteResponse = envelope("QuoteResponse", z.object({ quote: Quote, plan: Plan }));
 export const PlanResponse = envelope("PlanResponse", Plan);
 
@@ -437,11 +468,76 @@ export const SwapComparisonResponse = envelope(
     unavailable: z.array(z.object({ provider: SwapProviderName, reason: z.string() })),
   }),
 );
+
+export const SbtcDepositPrepareRequest = z
+  .object({
+    network: z.literal("mainnet"),
+    stacksRecipient: z.string().regex(/^SP[A-Z0-9]{25,41}$/),
+    amountSats: IntegerString.max(39).refine((value) => BigInt(value) > 0n, "amountSats must be greater than zero"),
+    maxSignerFeeSats: IntegerString.max(39),
+    reclaimPublicKey: z.string().regex(/^(?:0x)?(?:0[23][0-9a-fA-F]{64}|[0-9a-fA-F]{64})$/),
+    reclaimLockTime: z.number().int().min(1).max(100_000).optional(),
+  })
+  .openapi("SbtcDepositPrepareRequest");
+
+export const PreparedSbtcDeposit = z
+  .object({
+    address: z.string(),
+    depositScript: z.string(),
+    reclaimScript: z.string(),
+    signersPublicKey: z.string(),
+    reclaimLockTime: z.number().int(),
+    amountSats: IntegerString,
+    maxSignerFeeSats: IntegerString,
+    stacksRecipient: z.string(),
+    bitcoinNetwork: z.literal("mainnet"),
+    emilyNotifyPath: z.literal("/deposit"),
+  })
+  .openapi("PreparedSbtcDeposit");
+
+export const SbtcDepositPrepareResponse = envelope("SbtcDepositPrepareResponse", PreparedSbtcDeposit);
+
+export const SbtcDepositNotifyRequest = z
+  .object({
+    network: z.literal("mainnet"),
+    bitcoinTxid: z.string().regex(/^(?:0x)?[0-9a-fA-F]{64}$/),
+    bitcoinTxOutputIndex: z.number().int().min(0).max(10_000).optional(),
+    transactionHex: z
+      .string()
+      .regex(/^(?:0x)?(?:[0-9a-fA-F]{2})+$/)
+      .optional(),
+    depositScript: z.string().regex(/^(?:0x)?(?:[0-9a-fA-F]{2})+$/),
+    reclaimScript: z.string().regex(/^(?:0x)?(?:[0-9a-fA-F]{2})+$/),
+    stacksRecipient: z.string().regex(/^SP[A-Z0-9]{25,41}$/),
+    amountSats: IntegerString.max(39),
+    maxSignerFeeSats: IntegerString.max(39),
+  })
+  .openapi("SbtcDepositNotifyRequest");
+
+export const NotifiedSbtcDeposit = z
+  .object({
+    bitcoinTxid: z.string(),
+    bitcoinTxOutputIndex: z.number().int().nonnegative(),
+    recipient: z.string(),
+    amount: IntegerString,
+    status: z.enum(["pending", "accepted", "confirmed", "failed", "rbf"]),
+    statusMessage: z.string(),
+    complete: z.literal(false),
+    parameters: z.object({
+      lockTime: z.number().int().nonnegative(),
+      maxFee: IntegerString,
+    }),
+  })
+  .openapi("NotifiedSbtcDeposit");
+
+export const SbtcDepositNotifyResponse = envelope("SbtcDepositNotifyResponse", NotifiedSbtcDeposit);
 export const StartedWorkflowResponse = envelope(
   "StartedWorkflowResponse",
   z.object({ workflowId: z.string(), state: z.string(), nextAction: z.string(), plan: Plan }),
 );
 export const SignatureResponse = envelope("SignatureResponse", SignatureOutcome);
+export const CancelWorkflowResponse = envelope("CancelWorkflowResponse", CancelledWorkflow);
+export const AttachBroadcastResponse = envelope("AttachBroadcastResponse", AttachedBroadcast);
 
 export type QuoteRequestBody = z.infer<typeof QuoteRequest>;
 export type PlanRequestBody = z.infer<typeof PlanRequest>;
@@ -739,6 +835,7 @@ export const WorkflowSummary = z
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
     transitionCount: z.number().int(),
+    lastTxid: z.string().nullable(),
   })
   .openapi("WorkflowSummary");
 
