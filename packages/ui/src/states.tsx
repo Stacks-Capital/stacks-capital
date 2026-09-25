@@ -234,7 +234,7 @@ export function ReviewStateView({ state }: { state: ReviewState }) {
 
       <div className="state-actions">
         <button type="button" className="btn-primary" disabled={!state.planValidated} onClick={state.onConfirm}>
-          {state.planValidated ? "Sign in your wallet" : "Validation required"}
+          {state.planValidated ? (state.confirmLabel ?? "Sign in your wallet") : "Validation required"}
         </button>
       </div>
     </section>
@@ -261,6 +261,12 @@ export function SubmittedStateView({ state }: { state: SubmittedState }) {
             "Confirmed means the transaction is included in a Stacks block. Reconciled means our ingestion worker has independently verified event receipts and state updates against Hiro indexer proof."}
         </p>
       </div>
+      {state.estimatedWait ? (
+        <p className="state-timing">
+          <strong>Typical time:</strong> {state.estimatedWait}
+          {state.timingNote ? <span className="state-timing-note">{state.timingNote}</span> : null}
+        </p>
+      ) : null}
       {state.nextAction ? (
         <p className="state-next-action">
           <strong>Next step:</strong> {state.nextAction}
