@@ -654,6 +654,21 @@ dd {
   border-left: 4px solid var(--success-text);
 }
 
+.state-timing {
+  margin: 1rem 0 0;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-subtle));
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-subtle));
+}
+
+.state-timing-note {
+  display: block;
+  margin-top: 0.4rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
 .state-failed-delayed {
   border-left: 4px solid var(--danger-text);
 }
@@ -755,6 +770,13 @@ th {
   padding: 0;
 }
 
+button.drawer-backdrop:hover:not(:disabled),
+button.drawer-backdrop:focus,
+button.drawer-backdrop:active {
+  background: transparent;
+  box-shadow: none;
+}
+
 .workflow-drawer {
   position: relative;
   z-index: 101;
@@ -802,10 +824,237 @@ th {
 }
 
 .drawer-workflow-card {
+  display: block;
+  width: 100%;
+  text-align: left;
   background: var(--bg-subtle);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 0.85rem;
+  color: inherit;
+  cursor: pointer;
+}
+
+.wf-card-remaining,
+.wf-card-stage {
+  margin: 0 0 0.25rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.wf-card-remaining strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.drawer-workflow-card:hover,
+.drawer-workflow-card.selected {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-subtle));
+}
+
+.drawer-select-hint {
+  margin: 0 0 0.85rem;
+}
+
+.workflow-arrival {
+  margin: 0.7rem 0 0.85rem;
+  padding: 0.95rem 1rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent) 10%, #0c0e12);
+}
+
+.workflow-arrival.phase-arrived {
+  border-color: color-mix(in srgb, var(--success-text) 40%, var(--border-subtle));
+  background: color-mix(in srgb, var(--success) 14%, #0c0e12);
+}
+
+.workflow-arrival.phase-stopped {
+  border-color: color-mix(in srgb, var(--danger-text) 40%, var(--border-subtle));
+  background: color-mix(in srgb, var(--danger) 12%, #0c0e12);
+}
+
+.workflow-arrival p {
+  margin: 0 0 0.4rem;
+}
+
+.workflow-arrival p:last-child {
+  margin-bottom: 0;
+}
+
+.workflow-arrival-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.85rem;
+  align-items: flex-start;
+  margin-bottom: 0.7rem;
+}
+
+.workflow-arrival-kind {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.workflow-arrival-headline {
+  margin: 0.15rem 0 0;
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.workflow-arrival-clock {
+  margin: 0;
+  min-width: 9.5rem;
+  text-align: right;
+}
+
+.workflow-arrival-clock-label {
+  display: block;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.workflow-arrival-clock strong,
+.workflow-arrival-remaining strong {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.workflow-arrival-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+}
+
+.workflow-arrival-state-label {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.workflow-arrival-meta {
+  margin-top: 0.65rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.workflow-follow {
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+
+.workflow-follow li {
+  display: grid;
+  grid-template-columns: 1.5rem 1fr;
+  gap: 0.55rem;
+  position: relative;
+  padding: 0.35rem 0 0.7rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.workflow-follow li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 0.68rem;
+  top: 1.55rem;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-subtle);
+}
+
+.workflow-follow-index {
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+}
+
+.workflow-follow li[data-status="done"] .workflow-follow-index {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.workflow-follow li[data-status="current"] .workflow-follow-index {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.workflow-follow li[data-status="current"] strong {
+  color: var(--text-primary);
+}
+
+.workflow-follow-now,
+.workflow-follow-done {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.workflow-follow-now {
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.workflow-follow-done {
+  color: var(--success-text);
+  background: color-mix(in srgb, var(--success) 22%, transparent);
+}
+
+.wf-action-code {
+  margin: 0 0 0.15rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.drawer-workflow-item {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.wf-cancel-btn {
+  align-self: flex-start;
+  font-size: 0.78rem;
+}
+
+.wf-explorer-link {
+  color: inherit;
+  word-break: break-all;
+}
+
+.drawer-workflow-card.phase-in_flight {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-subtle));
+}
+
+.drawer-workflow-card.phase-stopped {
+  border-color: color-mix(in srgb, var(--warning, #c9a227) 40%, var(--border-subtle));
 }
 
 .wf-card-header {
@@ -1550,11 +1799,47 @@ th {
   border-radius: 12px;
   background: var(--bg-subtle);
 }
+.swap-token-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
 .swap-token-box label {
   display: block;
   color: var(--text-muted);
   font-size: 0.76rem;
-  margin-bottom: 0.65rem;
+  margin: 0;
+}
+.swap-max-btn {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.swap-max-btn:hover:not(:disabled) {
+  background: rgba(255, 85, 51, 0.08);
+}
+.swap-balance-row {
+  margin: 0.5rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+.token-usd {
+  margin: 0.35rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.bridge-fee-usd {
+  text-align: right;
+  margin: -0.35rem 0 0.75rem;
 }
 .swap-token-line {
   display: flex;
@@ -3086,6 +3371,10 @@ button.swap-preview-market.selected {
   flex-wrap: wrap;
 }
 
+.workflow-card.selected {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-subtle));
+}
+
 .workflow-card-main {
   display: flex;
   flex-direction: column;
@@ -3093,11 +3382,30 @@ button.swap-preview-market.selected {
   flex: 1;
 }
 
+.wf-card-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: stretch;
+}
+
 .wf-title-row {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
+}
+
+.workflow-card-select {
+  display: block;
+  width: 100%;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .wf-action-name {
@@ -3137,4 +3445,502 @@ button.swap-preview-market.selected {
   background: var(--danger);
   color: var(--on-danger, #ffffff);
   border: 1px solid var(--danger-border);
+}
+
+/* ---------------- Official sBTC bridge ---------------- */
+.bridge-stage {
+  --bridge-accent: #2dd4bf;
+  --bridge-accent-dim: rgba(45, 212, 191, 0.16);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.75rem;
+  margin: 0.5rem auto 2rem;
+  max-width: 32.5rem;
+}
+
+.bridge-card {
+  width: 100%;
+  padding: 1.15rem 1.2rem 1.35rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: #111318;
+}
+
+.bridge-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.1rem;
+}
+
+.bridge-card-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+
+.bridge-official {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.bridge-switch {
+  width: 38px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--bridge-accent);
+  position: relative;
+}
+
+.bridge-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #08110f;
+}
+
+.bridge-switch:disabled {
+  opacity: 1;
+  cursor: default;
+  color: inherit;
+}
+
+.bridge-notice,
+.bridge-accounting,
+.bridge-min {
+  margin: 0 0 0.9rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.bridge-min {
+  text-align: center;
+  margin: 0.85rem 0 1rem;
+}
+
+.bridge-leg {
+  padding: 0.95rem 1rem 0.85rem;
+  border-radius: 16px;
+  background: #0c0e12;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.bridge-leg-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  margin-bottom: 0.75rem;
+}
+
+.bridge-leg-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bridge-leg-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.bridge-asset {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 8.5rem;
+}
+
+.bridge-asset strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.bridge-asset small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.bridge-asset-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.bridge-asset-icon-btc {
+  background: #f7931a;
+  color: #1a0d00;
+}
+
+.bridge-asset-icon-sbtc {
+  background: #f45c2d;
+  color: #1a0803;
+}
+
+.bridge-leg-row input,
+.bridge-leg-row output {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  text-align: right;
+  color: var(--text-primary);
+  font: 650 1.55rem var(--font-mono);
+  padding: 0;
+}
+
+.bridge-leg-row input:disabled {
+  color: var(--text-secondary);
+}
+
+.bridge-leg-row input:focus {
+  outline: none;
+}
+
+.bridge-leg > small {
+  display: block;
+  margin-top: 0.65rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.bridge-flip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin: -0.7rem auto;
+  position: relative;
+  z-index: 1;
+  border-radius: 50%;
+  border: 4px solid #111318;
+  background: #1a1d24;
+  color: var(--bridge-accent);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.bridge-flip:hover:not(:disabled) {
+  background: #22262f;
+}
+
+.bridge-recipient,
+.bridge-fee {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.bridge-recipient {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.bridge-recipient input,
+.bridge-fee input {
+  flex: 1;
+  background: #0c0e12;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.bridge-fee span {
+  color: var(--text-muted);
+}
+
+.bridge-preview {
+  margin: 0.85rem 0 0;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+  background: #0c0e12;
+}
+
+.bridge-preview .eyebrow {
+  display: block;
+  margin-bottom: 0.55rem;
+}
+
+.bridge-preview dl {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.bridge-preview div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.bridge-preview dt {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.bridge-preview dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+
+.bridge-preview p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.bridge-edit-payout {
+  margin-top: 0.75rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.bridge-foreign-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.bridge-cta {
+  width: 100%;
+  min-height: 3.1rem;
+  border-radius: 999px;
+  border: 1px solid var(--bridge-accent);
+  background: transparent;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.bridge-cta:hover:not(:disabled) {
+  background: var(--bridge-accent-dim);
+}
+
+.bridge-cta:disabled {
+  opacity: 0.72;
+}
+
+.bridge-workflow,
+.bridge-status {
+  margin: 0 0 1rem;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: #0c0e12;
+}
+
+.bridge-eta {
+  margin: 0 0 1rem;
+  padding: 0.95rem 1rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent) 12%, #0c0e12);
+}
+
+.bridge-eta-wait {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.bridge-eta-wait strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.bridge-eta-detail,
+.bridge-eta-elapsed {
+  margin: 0.45rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.bridge-eta-elapsed {
+  color: var(--text-primary);
+}
+
+.bridge-signers {
+  width: 100%;
+}
+
+.bridge-signers h3 {
+  margin: 0 0 0.85rem;
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+
+.bridge-signers ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1.1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bridge-signers li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.bridge-signer-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8b93a3;
+}
+
+.bridge-stage .state-empty {
+  margin-top: 0.85rem;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.bridge-stage .state-instruction {
+  text-align: center;
+}
+
+@media (max-width: 620px) {
+  .bridge-leg-row {
+    flex-wrap: wrap;
+  }
+  .bridge-leg-row input,
+  .bridge-leg-row output {
+    flex-basis: 100%;
+    text-align: left;
+  }
+}
+
+/* ---------------- Wallet manager ---------------- */
+.wallet-manager {
+  position: relative;
+  z-index: 101;
+  width: 100%;
+  max-width: 22rem;
+  height: 100%;
+  background: #0d0f12;
+  border-left: 1px solid var(--border-subtle);
+  padding: 1.15rem 1.1rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  overflow-y: auto;
+}
+
+.wallet-manager-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.wallet-manager-head h2 {
+  margin: 0;
+  flex: 1;
+  font-size: 1.05rem;
+}
+
+.wallet-manager-net {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.wallet-manager-section h3 {
+  margin: 0 0 0.65rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.wallet-manager-section ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.wallet-manager-hint,
+.wallet-manager-connected {
+  margin: 0 0 0.7rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.wallet-manager-connected {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
+}
+
+.wallet-manager-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: #14171c;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.wallet-manager-row small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.wallet-manager-row.connected {
+  border-color: #2dd4bf;
+}
+
+.wallet-manager-row:hover:not(:disabled) {
+  background: #1a1e25;
+}
+
+.wallet-manager-row:disabled {
+  opacity: 0.55;
 }
