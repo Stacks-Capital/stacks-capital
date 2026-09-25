@@ -114,7 +114,8 @@ export function Borrow({
   // Clean pending workflow on completion
   useEffect(() => {
     if (scope !== null && (stage === "done" || stage === "recovery")) clearPending(storage(), scope);
-  }, [scope, stage]);
+    if (stage === "recovery" && started !== null) setStarted(null);
+  }, [scope, stage, started]);
 
   // Refresh risk state whenever switching actions
   const handleSelectAction = (nextAction: BorrowAction) => {
@@ -543,6 +544,15 @@ export function Borrow({
                   ? `Broadcast status is unknown. Workflow ${workflowId} in state ${workflowState}.`
                   : `Transaction broadcast as ${txid}. Workflow ${workflowId} in state ${workflowState}.`,
               recovery: [
+                {
+                  type: "resume",
+                  label: "Continue",
+                  action: () => {
+                    setQuoted(null);
+                    setStarted(null);
+                    setAmount("");
+                  },
+                },
                 {
                   type: "support",
                   label: "Copy workflow id",
