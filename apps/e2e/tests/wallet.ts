@@ -54,7 +54,17 @@ export async function installWallet(page: Page): Promise<FakeWallet> {
   await page.exposeFunction("__capitalFakeWallet", async (method: string, params: { message?: string }) => {
     wallet.calls.push(method);
     if (method === "getAddresses") {
-      return { addresses: [{ symbol: "STX", address: account.address, publicKey: account.publicKey }] };
+      return {
+        addresses: [
+          { symbol: "STX", address: account.address, publicKey: account.publicKey },
+          {
+            symbol: "BTC",
+            type: "p2wpkh",
+            address: "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+            publicKey: "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          },
+        ],
+      };
     }
     if (method === "stx_signMessage") {
       if (wallet.signIn === "reject") return { __error: REJECTED };
@@ -63,6 +73,12 @@ export async function installWallet(page: Page): Promise<FakeWallet> {
         signature: signMessageHashRsv({ messageHash, privateKey: account.privateKey }),
         publicKey: account.publicKey,
       };
+    }
+    if (method === "sendTransfer") {
+      if (wallet.transactions === "reject") return { __error: REJECTED };
+      if (wallet.transactions === "hang") return { __hang: true };
+      if (wallet.transactions === "no-txid") return { transaction: `0x${randomBytes(16).toString("hex")}` };
+      return { txid: randomBytes(32).toString("hex") };
     }
     if (method === "stx_callContract") {
       if (wallet.transactions === "reject") return { __error: REJECTED };
