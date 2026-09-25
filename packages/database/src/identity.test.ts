@@ -10,6 +10,7 @@ import {
   findClientApp,
   findSession,
   findWorkflowForTenant,
+  touchSession,
   isAllowedOrigin,
   revokeApiKey,
 } from "./identity.ts";
@@ -154,6 +155,14 @@ describe("identity", { skip: DATABASE_URL === "" ? "DATABASE_URL is not set" : f
       assert.ok(session !== null);
       assert.equal(await findSession(sql, session.token, later(3601)), null);
       assert.equal(await findSession(sql, `${session.sessionId}.${"A".repeat(43)}`, NOW), null);
+    });
+
+    it("extends an active session so it does not die on the original wall-clock expiry", async () => {
+      const { nonceId } = await nonce(FIXTURE_APP.id, FIXTURE_APP.origin);
+      const session = await exchange(nonceId, true);
+      assert.ok(session !== null);
+      await touchSession(sql, { sessionId: session.sessionId, now: later(3500), ttlSeconds: 3600 });
+      assert.notEqual(await findSession(sql, session.token, later(3601)), null);
     });
   });
 
