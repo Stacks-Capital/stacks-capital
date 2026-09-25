@@ -41,7 +41,10 @@ export async function connectWallet(
   if (provider === null) throw new Error(`${id} is not installed`);
   const answer =
     id === "xverse"
-      ? await provider.request("wallet_connect", { addresses: ["stacks"], network: XVERSE_NETWORK[network] })
+      ? await provider.request("wallet_connect", {
+          addresses: ["stacks", "bitcoin"],
+          network: XVERSE_NETWORK[network],
+        })
       : await provider.request("getAddresses", { network });
 
   const address = findStacksAddress(answer);
@@ -51,7 +54,78 @@ export async function connectWallet(
   if (walletNetwork !== network) {
     throw new Error(`${id} is on ${walletNetwork}. Switch the wallet to ${network} and connect again.`);
   }
-  return { id, address, network: walletNetwork };
+  const bitcoin = findBitcoinPayment(answer);
+  return {
+    id,
+    address,
+    network: walletNetwork,
+    ...(bitcoin === null
+      ? {}
+      : { bitcoinAddress: bitcoin.address, bitcoinPublicKey: bitcoin.publicKey, bitcoinWalletId: id }),
+  };
+}
+
+export async function connectBitcoinWallet(
+  id: WalletId,
+  network: StacksNetwork,
+  provider: WalletProvider | null = findProvider(id),
+): Promise<BitcoinPayment & { walletId: WalletId }> {
+  if (provider === null) throw new Error(`${id} is not installed`);
+  const answer =
+    id === "xverse"
+      ? await provider.request("wallet_connect", {
+          addresses: ["bitcoin"],
+          network: XVERSE_NETWORK[network],
+        })
+      : await provider.request("getAddresses", { network });
+  const bitcoin = findBitcoinPayment(answer);
+  if (bitcoin === null) {
+    throw new Error(`${id} returned no Bitcoin payment address. Approve Bitcoin access in the wallet and try again.`);
+  }
+  return { ...bitcoin, walletId: id };
+}
+
+export type BitcoinPayment = { address: string; publicKey: string };
+
+const BTC_ADDRESS = /^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,90}$/;
+const BTC_PUBLIC_KEY = /^(?:0x)?(?:0[23][0-9a-fA-F]{64}|[0-9a-fA-F]{64})$/;
+
+function asBitcoinPayment(record: Record<string, unknown>): BitcoinPayment | null {
+  const address = typeof record.address === "string" ? record.address : null;
+  const publicKey = typeof record.publicKey === "string" ? record.publicKey : null;
+  if (address === null || publicKey === null) return null;
+  if (!BTC_ADDRESS.test(address) || !BTC_PUBLIC_KEY.test(publicKey)) return null;
+  const symbol = typeof record.symbol === "string" ? record.symbol.toUpperCase() : "";
+  const purpose = typeof record.purpose === "string" ? record.purpose : "";
+  if (symbol !== "" && symbol !== "BTC") return null;
+  if (purpose !== "" && purpose !== "payment") return null;
+  return { address, publicKey };
+}
+
+function bitcoinPaymentRank(record: Record<string, unknown>): number {
+  const purpose = typeof record.purpose === "string" ? record.purpose : "";
+  const type = typeof record.type === "string" ? record.type.toLowerCase() : "";
+  if (purpose === "payment" || type === "p2wpkh") return 0;
+  if (type === "p2tr") return 1;
+  return 2;
+}
+
+function collectBitcoinPayments(payload: unknown, seen = new Set<unknown>()): Array<BitcoinPayment & { rank: number }> {
+  if (typeof payload !== "object" || payload === null || seen.has(payload)) return [];
+  seen.add(payload);
+  if (Array.isArray(payload)) {
+    return payload.flatMap((item) => collectBitcoinPayments(item, seen));
+  }
+  const record = payload as Record<string, unknown>;
+  const own = asBitcoinPayment(record);
+  const rest = Object.values(record).flatMap((value) => collectBitcoinPayments(value, seen));
+  return own === null ? rest : [{ ...own, rank: bitcoinPaymentRank(record) }, ...rest];
+}
+
+/** Finds the Bitcoin payment address and reclaim public key without inventing one. */
+export function findBitcoinPayment(payload: unknown): BitcoinPayment | null {
+  const found = collectBitcoinPayments(payload).sort((left, right) => left.rank - right.rank)[0];
+  return found === undefined ? null : { address: found.address, publicKey: found.publicKey };
 }
 
 export function messageSigner(id: WalletId, provider: WalletProvider | null = findProvider(id)): MessageSigner {
