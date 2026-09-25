@@ -9,6 +9,7 @@ export {
   swapOfferExpired,
 } from "./swap.ts";
 export type { ComparedSwaps, CompareSwapsInput, SwapMarketRow } from "./swap.ts";
+export { assertPreparedSbtcDeposit, emilyDepositIsComplete, schnorrPublicKey } from "./sbtcDeposit.ts";
 export {
   COMPATIBILITY_MATRIX,
   LAUNCH_DECISION,
@@ -82,6 +83,8 @@ export type {
   SwapQuoteComparison,
   SwapWalletCall,
   SwapWalletPostCondition,
+  PreparedSbtcDeposit,
+  NotifiedSbtcDeposit,
   TransportKind,
   WebhookEndpoint,
   WorkflowSummary,
