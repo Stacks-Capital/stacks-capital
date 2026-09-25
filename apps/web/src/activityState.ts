@@ -30,8 +30,11 @@ export function formatWorkflowAction(action: string | null): string {
   if (!action) return "Unknown Operation";
   switch (action) {
     case "sbtc_deposit":
+    case "deposit_sbtc":
       return "Bitcoin Deposit (BTC → sBTC)";
     case "sbtc_withdrawal":
+    case "sbtc_withdraw":
+    case "withdraw_sbtc":
       return "Bitcoin Withdrawal (sBTC → BTC)";
     case "zest_supply":
     case "earn_supply":
@@ -65,6 +68,10 @@ export function formatWorkflowStatus(state: string): {
     case "reconciled":
     case "settled":
       return { label: "Completed & Reconciled", tone: "success" };
+    case "user_rejected":
+      return { label: "Cancelled", tone: "neutral" };
+    case "broadcast_unknown":
+      return { label: "Broadcast unknown", tone: "warning" };
     case "submitted":
     case "confirming":
     case "signer_processing":
@@ -97,11 +104,20 @@ export function formatWorkflowStatus(state: string): {
  */
 export function classifyWorkflowGroup(state: string): WorkflowGroupKind {
   const normalized = state.toLowerCase();
-  if (["completed", "reconciled", "settled"].includes(normalized)) {
+  if (["completed", "reconciled", "settled", "user_rejected"].includes(normalized)) {
     return "completed";
   }
   if (
-    ["delayed", "reclaimable", "stale", "expired", "failed", "reconciliation_failed", "rejected"].includes(normalized)
+    [
+      "delayed",
+      "reclaimable",
+      "stale",
+      "expired",
+      "failed",
+      "reconciliation_failed",
+      "rejected",
+      "broadcast_unknown",
+    ].includes(normalized)
   ) {
     return "recovery_needed";
   }
@@ -128,7 +144,10 @@ export function resolveWorkflowRecovery(workflow: WorkflowSummary, network: Stac
   }
 
   // Bitcoin deposit past lock-height: offer atomic refund reclaim
-  if (workflow.action === "sbtc_deposit" && (normalized === "reclaimable" || normalized === "delayed")) {
+  if (
+    (workflow.action === "sbtc_deposit" || workflow.action === "deposit_sbtc") &&
+    (normalized === "reclaimable" || normalized === "delayed")
+  ) {
     actions.push({
       type: "reclaim",
       label: "Reclaim Bitcoin Deposit",
@@ -155,6 +174,16 @@ export function resolveWorkflowRecovery(workflow: WorkflowSummary, network: Stac
       label: "Retry Transaction",
       description: "Retry submission with updated gas parameters and nonce verification.",
       executable: true,
+    });
+  }
+
+  if (normalized === "broadcast_unknown") {
+    actions.push({
+      type: "retry",
+      label: "Check Leather — do not send again",
+      description:
+        "The wallet never returned a Bitcoin txid. If Leather shows no send, nothing moved — start a new deposit. If Leather shows a txid, notify Emily with that hex.",
+      executable: false,
     });
   }
 
