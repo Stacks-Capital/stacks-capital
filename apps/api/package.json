@@ -21,6 +21,7 @@
     "alex-sdk": "3.2.1",
     "hono": "4.13.8",
     "redis": "6.2.1",
+    "sbtc": "0.3.2",
     "zod": "4.6.5"
   },
   "devDependencies": {
