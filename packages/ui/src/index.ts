@@ -16,6 +16,7 @@ export {
 export {
   AddressChip,
   BlockHeightChip,
+  bitcoinExplorerTxUrl,
   explorerTxUrl,
   formatBlockHeight,
   PageHeader,
@@ -30,8 +31,27 @@ export {
   WorkflowAnnouncer,
   workflowAnnouncement,
   WorkflowDrawer,
+  type WorkflowDrawerItem,
   type WorkflowProgress,
 } from "./shell.tsx";
+export { WorkflowArrivalView } from "./workflowArrival.tsx";
+export {
+  arrivalPhase,
+  canCancelUnsignedWorkflow,
+  describeWorkflowArrival,
+  destinationChainLabel,
+  followAlongSteps,
+  formatElapsedSince,
+  typicalWaitLabel,
+  typicalWaitMinutes,
+  workflowActionTitle,
+  workflowArrivalKind,
+  workflowStateLabel,
+  type ArrivalFollowStep,
+  type WorkflowArrival,
+  type WorkflowArrivalKind,
+  type WorkflowArrivalPhase,
+} from "./workflowTiming.ts";
 
 // The rules the components follow, usable without React.
 export {
@@ -99,13 +119,19 @@ export {
 } from "./holdings.ts";
 export { type ConnectedWallet, type MessageSigner, type SignInResult, signIn } from "./session.ts";
 export {
+  askBitcoinTransfer,
   askWallet,
   askWalletCall,
   assertWalletAllowed,
+  bitcoinTransferTxid,
+  findRecentBitcoinDepositTxid,
+  waitForBitcoinDepositTxid,
   type WalletAnswer,
   encodeArgument,
   encodePostCondition,
+  type BitcoinTransferRequest,
   type PostConditionRequest,
+  toBitcoinTransferRequest,
   toWalletCallRequest,
   toWalletRequest,
   type WalletRequest,
@@ -139,26 +165,41 @@ export {
   swapView,
 } from "./swap.ts";
 export {
+  connectBitcoinWallet,
   connectWallet,
+  findBitcoinPayment,
   findProvider,
   findStacksAddress,
+  type BitcoinPayment,
   installedWallets,
   messageSigner,
   type WalletProvider,
 } from "./wallet.ts";
 export {
   assertDistinctBalances,
+  assertSafeDeposit,
+  assertSafeWithdrawPayout,
+  bitcoinRecipientFromAddress,
   calculateDepositAccounting,
   calculateWithdrawalAccounting,
   type DepositAccounting,
+  depositStacksRecipientFromPlan,
   findLatestSbtcWorkflow,
   isAttemptBroadcastUnknown,
+  isPlaceholderBtcRecipient,
+  isPlaceholderStacksRecipient,
+  loadIgnoredSbtcWorkflows,
+  PLACEHOLDER_BTC_RECIPIENT,
+  rememberIgnoredSbtcWorkflow,
+  sbtcWorkflowBlocksComposer,
+  shouldResumeSbtcWorkflow,
   type RecipientValidation,
   type SbtcBridgeMode,
   type SbtcBridgeStage,
   stageForDeposit,
   stageForWithdrawal,
   validateBtcRecipient,
+  withdrawRecipientFromPlan,
   type WithdrawalAccounting,
 } from "./sbtc.ts";
 export {
