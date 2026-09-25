@@ -13,7 +13,7 @@ export type ViewMode = "simple" | "pro";
 
 export const SHELL_NAV_TABS = [
   "Overview",
-  "Deposit BTC",
+  "Bridge",
   "Earn",
   "Borrow",
   "Swap",
@@ -45,4 +45,9 @@ export function workflowAnnouncement(workflows: readonly WorkflowProgress[]): st
  */
 export function explorerTxUrl(txid: string, network: "mainnet" | "testnet"): string {
   return `https://explorer.hiro.so/txid/${encodeURIComponent(txid)}?chain=${network}`;
+}
+
+export function bitcoinExplorerTxUrl(txid: string, network: "mainnet" | "testnet"): string {
+  const clean = txid.replace(/^0x/i, "");
+  return network === "mainnet" ? `https://mempool.space/tx/${clean}` : `https://mempool.space/testnet/tx/${clean}`;
 }
