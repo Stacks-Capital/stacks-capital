@@ -187,6 +187,32 @@ describe("reads", () => {
     assert.equal(result.context.requestId, "req_1");
   });
 
+  it("attaches a found Bitcoin broadcast", async () => {
+    const { client, calls } = build([
+      envelope({
+        state: "SUBMITTED",
+        nextAction: "WAIT",
+        txid: "aa".repeat(32),
+        emilyNotified: true,
+        emilyStatus: "pending",
+      }),
+    ]);
+    const result = await client.attachFoundBroadcast("wf_1", { txid: "aa".repeat(32) });
+    assert.equal(calls[0]?.method, "POST");
+    assert.equal(calls[0]?.url, `${BASE}/v1/workflows/wf_1/broadcast`);
+    assert.equal(result.data.state, "SUBMITTED");
+    assert.equal(result.data.emilyNotified, true);
+  });
+
+  it("cancels an unsigned workflow", async () => {
+    const { client, calls } = build([envelope({ state: "USER_REJECTED", nextAction: "START_NEW" })]);
+    const result = await client.cancelWorkflow("wf_1");
+    assert.equal(calls[0]?.method, "POST");
+    assert.equal(calls[0]?.url, `${BASE}/v1/workflows/wf_1/cancel`);
+    assert.equal(result.data.state, "USER_REJECTED");
+    assert.equal(calls[0]?.body, JSON.stringify({ network: "mainnet" }));
+  });
+
   it("reads earn performance attribution and charts", async () => {
     const performanceData = {
       items: [
@@ -284,6 +310,52 @@ describe("swap quote comparison", () => {
       slippageBps: 50,
       owner: "SP_OWNER",
     });
+  });
+});
+
+describe("sBTC deposit prepare and notify", () => {
+  it("posts the official prepare and notify routes without retrying", async () => {
+    const prepared = {
+      address: "bc1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq8x4x2k",
+      depositScript: "51",
+      reclaimScript: "ac",
+      signersPublicKey: "11".repeat(32),
+      reclaimLockTime: 144,
+      amountSats: "100000",
+      maxSignerFeeSats: "1000",
+      stacksRecipient: "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR",
+      bitcoinNetwork: "mainnet",
+      emilyNotifyPath: "/deposit",
+    };
+    const notified = {
+      bitcoinTxid: "22".repeat(32),
+      bitcoinTxOutputIndex: 0,
+      recipient: "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR",
+      amount: "100000",
+      status: "accepted",
+      statusMessage: "tracked",
+      complete: false,
+      parameters: { lockTime: 144, maxFee: "1000" },
+    };
+    const { client, calls } = build([envelope(prepared), envelope(notified)], { sessionToken: "ses_1.secret" });
+    const first = await client.prepareSbtcDeposit({
+      stacksRecipient: "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR",
+      amountSats: "100000",
+      maxSignerFeeSats: "1000",
+      reclaimPublicKey: "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    });
+    assert.equal(first.data.address, prepared.address);
+    assert.equal(calls[0]?.url, `${BASE}/v1/sbtc/deposits/prepare`);
+    const second = await client.notifySbtcDeposit({
+      bitcoinTxid: "22".repeat(32),
+      depositScript: "51",
+      reclaimScript: "ac",
+      stacksRecipient: "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR",
+      amountSats: "100000",
+      maxSignerFeeSats: "1000",
+    });
+    assert.equal(second.data.complete, false);
+    assert.equal(calls[1]?.url, `${BASE}/v1/sbtc/deposits/notify`);
   });
 });
 
