@@ -41,14 +41,18 @@ import {
   enforceRateLimit,
   requireClient,
   requireScope,
+  SESSION_TTL_SECONDS,
   signatureMatches,
 } from "./auth.ts";
 import { decodeCursor, encodeCursor } from "./cursor.ts";
+import { advanceSbtcBridgeById, isSbtcBridgeInFlight } from "./sbtcBridgeAdvance.ts";
 import {
   createQuote,
   liveReads,
   marketRisk,
   type ReadsLoader,
+  attachFoundBroadcast,
+  cancelWorkflow,
   recordSignature,
   requireEnabled,
   startWorkflow,
@@ -69,8 +73,12 @@ import {
   pricesRoute,
   priceValuationsRoute,
   quoteRoute,
+  attachBroadcastRoute,
+  cancelWorkflowRoute,
   signatureRoute,
   startWorkflowRoute,
+  sbtcDepositNotifyRoute,
+  sbtcDepositPrepareRoute,
   swapComparisonRoute,
   swapMarketsRoute,
   verifyRoute,
@@ -90,6 +98,14 @@ import {
   type SwapMarketCatalog,
 } from "./swapMarkets.ts";
 import { compareSwapQuotes, type SwapQuoteProvider } from "./swapQuotes.ts";
+import {
+  notifySbtcDeposit,
+  prepareSbtcDeposit,
+  type NotifySbtcDepositInput,
+  type PreparedSbtcDeposit,
+  type SbtcDepositBridge,
+} from "./sbtcDeposit.ts";
+import type { EmilyDeposit } from "@stacks-capital/adapters";
 
 export type AppDependencies = {
   sql: Sql;
@@ -102,6 +118,8 @@ export type AppDependencies = {
   swapQuoteProviders?: readonly SwapQuoteProvider[];
   /** Test seam for the live Bitflow/Velar/ALEX token catalog. */
   swapMarkets?: () => Promise<SwapMarketCatalog>;
+  /** Test seam for official sBTC/Emily construction. Production uses SbtcApiClientMainnet. */
+  sbtcDepositBridge?: SbtcDepositBridge;
 };
 type Env = { Variables: { requestId: string } };
 
@@ -110,8 +128,8 @@ export const OPENAPI_CONFIG = {
   info: { title: "Stacks Capital API", version: SCHEMA_VERSION },
 } as const;
 
+export { SESSION_TTL_SECONDS } from "./auth.ts";
 export const NONCE_TTL_SECONDS = 300;
-export const SESSION_TTL_SECONDS = 3_600;
 
 export function createApp(deps: AppDependencies) {
   const now = deps.now ?? (() => new Date());
@@ -790,13 +808,28 @@ export function createApp(deps: AppDependencies) {
     // A session lists only its own; a key lists its app, or one address within it.
     const ownerAddress = principal.kind === "session" ? principal.address : (owner ?? null);
 
-    const page = await listWorkflowsForTenant(deps.sql, {
+    const listQuery = {
       appId: principal.appId,
       ownerAddress,
       network,
       limit,
       before: after === null ? undefined : { createdAt: new Date(after[0] ?? ""), id: after[1] ?? "" },
-    });
+    };
+    let page = await listWorkflowsForTenant(deps.sql, listQuery);
+    const pendingBridge = page.items.filter((workflow) => isSbtcBridgeInFlight(workflow.action, workflow.state));
+    if (pendingBridge.length > 0) {
+      await Promise.all(
+        pendingBridge.slice(0, 8).map((workflow) =>
+          advanceSbtcBridgeById(deps.sql, {
+            id: workflow.id,
+            appId: principal.appId,
+            ownerAddress,
+            now: now(),
+          }),
+        ),
+      );
+      page = await listWorkflowsForTenant(deps.sql, listQuery);
+    }
     const last = page.items.at(-1);
     return c.json(
       {
@@ -826,10 +859,11 @@ export function createApp(deps: AppDependencies) {
     if (principal.kind === "session" && principal.network !== network) {
       throw new ApiError("NETWORK_MISMATCH", `Session is for ${principal.network}`);
     }
-    const workflow = await findWorkflowForTenant(deps.sql, {
+    const workflow = await advanceSbtcBridgeById(deps.sql, {
       id,
       appId: principal.appId,
       ownerAddress: principal.kind === "session" ? principal.address : null,
+      now: now(),
     });
     if (workflow === null) throw new ApiError("NOT_FOUND", "No such workflow");
     if (workflow.network !== network) throw new ApiError("NETWORK_MISMATCH", `Workflow is on ${workflow.network}`);
@@ -970,6 +1004,88 @@ export function createApp(deps: AppDependencies) {
     }
   });
 
+  const sbtcBridge = deps.sbtcDepositBridge;
+
+  app.openapi(sbtcDepositPrepareRoute, async (c) => {
+    const input = c.req.valid("json");
+    writer(await admit(c), "quotes:write");
+    try {
+      const prepareInput = {
+        network: input.network,
+        stacksRecipient: input.stacksRecipient,
+        amountSats: input.amountSats,
+        maxSignerFeeSats: input.maxSignerFeeSats,
+        reclaimPublicKey: input.reclaimPublicKey,
+        ...(input.reclaimLockTime === undefined ? {} : { reclaimLockTime: input.reclaimLockTime }),
+      };
+      const prepared: PreparedSbtcDeposit =
+        sbtcBridge === undefined
+          ? await prepareSbtcDeposit(prepareInput)
+          : await prepareSbtcDeposit(prepareInput, sbtcBridge);
+      return c.json(
+        {
+          schemaVersion: SCHEMA_VERSION,
+          requestId: c.get("requestId"),
+          network: "stacks:mainnet" as const,
+          data: prepared,
+          context: context(),
+        },
+        200,
+      );
+    } catch (error) {
+      throw new ApiError("INVALID_REQUEST", error instanceof Error ? error.message : "Could not prepare the deposit");
+    }
+  });
+
+  app.openapi(sbtcDepositNotifyRoute, async (c) => {
+    const input = c.req.valid("json");
+    writer(await admit(c), "workflows:write");
+    try {
+      const notifyInput: NotifySbtcDepositInput = {
+        network: input.network,
+        bitcoinTxid: input.bitcoinTxid,
+        depositScript: input.depositScript,
+        reclaimScript: input.reclaimScript,
+        stacksRecipient: input.stacksRecipient,
+        amountSats: input.amountSats,
+        maxSignerFeeSats: input.maxSignerFeeSats,
+        ...(input.bitcoinTxOutputIndex === undefined ? {} : { bitcoinTxOutputIndex: input.bitcoinTxOutputIndex }),
+        ...(input.transactionHex === undefined ? {} : { transactionHex: input.transactionHex }),
+      };
+      const emily: EmilyDeposit =
+        sbtcBridge === undefined
+          ? await notifySbtcDeposit(notifyInput)
+          : await notifySbtcDeposit(notifyInput, sbtcBridge);
+      return c.json(
+        {
+          schemaVersion: SCHEMA_VERSION,
+          requestId: c.get("requestId"),
+          network: "stacks:mainnet" as const,
+          data: {
+            bitcoinTxid: emily.bitcoinTxid,
+            bitcoinTxOutputIndex: emily.bitcoinTxOutputIndex,
+            recipient: emily.recipient,
+            amount: emily.amount,
+            status: emily.status,
+            statusMessage: emily.statusMessage,
+            complete: false as const,
+            parameters: emily.parameters,
+          },
+          context: {
+            ...context(),
+            warnings: ["Emily accepted the deposit for tracking. A Bitcoin txid is not an sBTC mint."],
+          },
+        },
+        200,
+      );
+    } catch (error) {
+      throw new ApiError(
+        "INVALID_REQUEST",
+        error instanceof Error ? error.message : "Emily did not accept the deposit",
+      );
+    }
+  });
+
   app.openapi(planRoute, async (c) => {
     const body = c.req.valid("json");
     const principal = writer(await admit(c), "quotes:write");
@@ -1063,6 +1179,58 @@ export function createApp(deps: AppDependencies) {
         requestId: c.get("requestId"),
         network: `stacks:${input.network}` as const,
         data: outcome,
+        context: context(),
+      },
+      200,
+    );
+  });
+
+  app.openapi(attachBroadcastRoute, async (c) => {
+    const { id } = c.req.valid("param");
+    const input = c.req.valid("json");
+    const principal = writer(await admit(c), "workflows:write");
+    const attached = await attachFoundBroadcast(
+      { sql: deps.sql, now },
+      {
+        network: input.network,
+        workflowId: id,
+        appId: principal.appId,
+        ownerAddress: principal.kind === "session" ? principal.address : null,
+        txid: input.txid,
+        ...(input.reclaimPublicKey === undefined ? {} : { reclaimPublicKey: input.reclaimPublicKey }),
+      },
+    );
+    return c.json(
+      {
+        schemaVersion: SCHEMA_VERSION,
+        requestId: c.get("requestId"),
+        network: `stacks:${input.network}` as const,
+        data: attached,
+        context: context(),
+      },
+      200,
+    );
+  });
+
+  app.openapi(cancelWorkflowRoute, async (c) => {
+    const { id } = c.req.valid("param");
+    const input = c.req.valid("json");
+    const principal = writer(await admit(c), "workflows:write");
+    const cancelled = await cancelWorkflow(
+      { sql: deps.sql, now },
+      {
+        network: input.network,
+        workflowId: id,
+        appId: principal.appId,
+        ownerAddress: principal.kind === "session" ? principal.address : null,
+      },
+    );
+    return c.json(
+      {
+        schemaVersion: SCHEMA_VERSION,
+        requestId: c.get("requestId"),
+        network: `stacks:${input.network}` as const,
+        data: cancelled,
         context: context(),
       },
       200,
