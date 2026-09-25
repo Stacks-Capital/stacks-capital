@@ -139,39 +139,49 @@ test("disconnecting forgets the session", async ({ page }) => {
   ).toBeVisible();
 });
 
-test("deposit BTC screen enforces accounting notice and switches between deposit and withdraw modes", async ({
-  page,
-}) => {
+test("bridge screen enforces accounting notice and switches between deposit and withdraw modes", async ({ page }) => {
   await connect(page);
-  await openTab(page, "Deposit BTC");
+  await openTab(page, "Bridge");
 
-  await expect(page.getByRole("heading", { name: "Deposit Bitcoin" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Bridge" }).first()).toBeVisible();
   await expect(
     page.getByText("Pending BTC and in-flight transactions are held strictly distinct from spendable sBTC."),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Withdraw (sBTC → BTC)" }).click();
-  await expect(page.getByRole("heading", { name: "Withdraw sBTC" })).toBeVisible();
-  await expect(page.getByText("Requested Bitcoin output:")).toBeVisible();
+  await page.getByRole("button", { name: "Switch bridge direction" }).click();
+  await expect(page.getByText("From Stacks")).toBeVisible();
+  await expect(page.getByText("Requested Bitcoin output")).toBeVisible();
+});
+
+test("bridge quotes, builds the Emily P2TR address, and does not claim a mint", async ({ page }) => {
+  await connect(page);
+  await openTab(page, "Bridge");
+  await expect(page.getByRole("button", { name: "Deposit Bitcoin" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Destination matches connected wallet").first()).toBeVisible();
+  await expect(page.getByText("A Bitcoin txid is not a mint")).toBeVisible();
+  await expect(page.getByText(/bc1p/)).toHaveCount(0);
+  expect(wallet.calls.includes("sendTransfer")).toBeFalsy();
 });
 
 test("withdraws sBTC: quotes, reviews initially locked accounting, and submits awaiting request evidence", async ({
   page,
 }) => {
   await connect(page);
-  await openTab(page, "Deposit BTC");
-  await page.getByRole("button", { name: "Withdraw (sBTC → BTC)" }).click();
+  await openTab(page, "Bridge");
+  await page.getByRole("button", { name: "Switch bridge direction" }).click();
 
-  await page.getByRole("button", { name: "Get withdraw quote" }).click();
-  await expect(page.getByRole("heading", { name: "Review before signing" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Withdraw to Bitcoin" })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("Workflow completes only after signer acceptance and the Bitcoin payout")).toBeVisible();
 
-  await page.getByRole("button", { name: "Sign in your wallet" }).click();
-  await expect(page.getByText("withdrawal request submitted; awaiting on-chain request evidence.")).toBeVisible();
-  await expect(
-    page.getByRole("region", { name: "Transaction submitted" }).getByText("SUBMITTED", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByText("COMPLETED", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Withdraw to Bitcoin" }).click();
+  await expect(page.getByRole("button", { name: "Withdraw to Bitcoin" })).toBeVisible();
+  await expect(page.getByText("Start another withdrawal")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Workflows" }).click();
+  const drawer = page.getByRole("dialog", { name: "Workflows and recovery drawer" });
+  await expect(drawer.getByText("withdraw_sbtc")).toBeVisible();
+  await expect(drawer.getByText("SUBMITTED", { exact: true })).toBeVisible();
+  await expect(drawer.getByText("COMPLETED", { exact: true })).toHaveCount(0);
 });
 
 /*
