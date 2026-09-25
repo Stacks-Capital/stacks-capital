@@ -23,10 +23,18 @@ import {
   PricesResponse,
   PositionsResponse,
   SessionResponse,
+  AttachBroadcastRequest,
+  AttachBroadcastResponse,
+  CancelWorkflowRequest,
+  CancelWorkflowResponse,
   SignatureRequest,
   SignatureResponse,
   StartedWorkflowResponse,
   StartWorkflowRequest,
+  SbtcDepositNotifyRequest,
+  SbtcDepositNotifyResponse,
+  SbtcDepositPrepareRequest,
+  SbtcDepositPrepareResponse,
   SwapComparisonRequest,
   SwapComparisonResponse,
   SwapMarketsQuery,
@@ -124,6 +132,28 @@ export const swapComparisonRoute = createRoute({
   },
 });
 
+export const sbtcDepositPrepareRoute = createRoute({
+  method: "post",
+  path: "/v1/sbtc/deposits/prepare",
+  security: keyOrSession,
+  request: { body: body(SbtcDepositPrepareRequest) },
+  responses: {
+    200: json("Unsigned mainnet sBTC deposit address and scripts", SbtcDepositPrepareResponse),
+    ...errorResponses,
+  },
+});
+
+export const sbtcDepositNotifyRoute = createRoute({
+  method: "post",
+  path: "/v1/sbtc/deposits/notify",
+  security: keyOrSession,
+  request: { body: body(SbtcDepositNotifyRequest) },
+  responses: {
+    200: json("Emily accepted the deposit for tracking. This is not a mint.", SbtcDepositNotifyResponse),
+    ...errorResponses,
+  },
+});
+
 export const planRoute = createRoute({
   method: "post",
   path: "/v1/plans",
@@ -151,6 +181,30 @@ export const signatureRoute = createRoute({
   request: { params: WorkflowParams, body: body(SignatureRequest) },
   responses: {
     200: json("What the wallet answered, and where the workflow stands", SignatureResponse),
+    404: error("No such workflow for the caller"),
+    ...errorResponses,
+  },
+});
+
+export const cancelWorkflowRoute = createRoute({
+  method: "post",
+  path: "/v1/workflows/{id}/cancel",
+  security: keyOrSession,
+  request: { params: WorkflowParams, body: body(CancelWorkflowRequest) },
+  responses: {
+    200: json("Unsigned workflow marked USER_REJECTED", CancelWorkflowResponse),
+    404: error("No such workflow for the caller"),
+    ...errorResponses,
+  },
+});
+
+export const attachBroadcastRoute = createRoute({
+  method: "post",
+  path: "/v1/workflows/{id}/broadcast",
+  security: keyOrSession,
+  request: { params: WorkflowParams, body: body(AttachBroadcastRequest) },
+  responses: {
+    200: json("Found Bitcoin txid attached and Emily notified when scripts match", AttachBroadcastResponse),
     404: error("No such workflow for the caller"),
     ...errorResponses,
   },
