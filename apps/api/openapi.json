@@ -2280,6 +2280,12 @@
           },
           "transitionCount": {
             "type": "integer"
+          },
+          "lastTxid": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -2292,7 +2298,8 @@
           "action",
           "createdAt",
           "updatedAt",
-          "transitionCount"
+          "transitionCount",
+          "lastTxid"
         ]
       },
       "WorkflowResponse": {
@@ -3583,6 +3590,290 @@
           "amount"
         ]
       },
+      "SbtcDepositPrepareResponse": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "1.0"
+            ]
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string",
+            "enum": [
+              "stacks:mainnet",
+              "stacks:testnet"
+            ]
+          },
+          "data": {
+            "$ref": "#/components/schemas/PreparedSbtcDeposit"
+          },
+          "context": {
+            "$ref": "#/components/schemas/Context"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "network",
+          "data",
+          "context"
+        ]
+      },
+      "PreparedSbtcDeposit": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "depositScript": {
+            "type": "string"
+          },
+          "reclaimScript": {
+            "type": "string"
+          },
+          "signersPublicKey": {
+            "type": "string"
+          },
+          "reclaimLockTime": {
+            "type": "integer"
+          },
+          "amountSats": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "maxSignerFeeSats": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "stacksRecipient": {
+            "type": "string"
+          },
+          "bitcoinNetwork": {
+            "type": "string",
+            "enum": [
+              "mainnet"
+            ]
+          },
+          "emilyNotifyPath": {
+            "type": "string",
+            "enum": [
+              "/deposit"
+            ]
+          }
+        },
+        "required": [
+          "address",
+          "depositScript",
+          "reclaimScript",
+          "signersPublicKey",
+          "reclaimLockTime",
+          "amountSats",
+          "maxSignerFeeSats",
+          "stacksRecipient",
+          "bitcoinNetwork",
+          "emilyNotifyPath"
+        ]
+      },
+      "SbtcDepositPrepareRequest": {
+        "type": "object",
+        "properties": {
+          "network": {
+            "type": "string",
+            "enum": [
+              "mainnet"
+            ]
+          },
+          "stacksRecipient": {
+            "type": "string",
+            "pattern": "^SP[A-Z0-9]{25,41}$"
+          },
+          "amountSats": {
+            "type": "string",
+            "maxLength": 39,
+            "pattern": "^[0-9]+$"
+          },
+          "maxSignerFeeSats": {
+            "type": "string",
+            "maxLength": 39,
+            "pattern": "^[0-9]+$"
+          },
+          "reclaimPublicKey": {
+            "type": "string",
+            "pattern": "^(?:0x)?(?:0[23][0-9a-fA-F]{64}|[0-9a-fA-F]{64})$"
+          },
+          "reclaimLockTime": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000
+          }
+        },
+        "required": [
+          "network",
+          "stacksRecipient",
+          "amountSats",
+          "maxSignerFeeSats",
+          "reclaimPublicKey"
+        ]
+      },
+      "SbtcDepositNotifyResponse": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "1.0"
+            ]
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string",
+            "enum": [
+              "stacks:mainnet",
+              "stacks:testnet"
+            ]
+          },
+          "data": {
+            "$ref": "#/components/schemas/NotifiedSbtcDeposit"
+          },
+          "context": {
+            "$ref": "#/components/schemas/Context"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "network",
+          "data",
+          "context"
+        ]
+      },
+      "NotifiedSbtcDeposit": {
+        "type": "object",
+        "properties": {
+          "bitcoinTxid": {
+            "type": "string"
+          },
+          "bitcoinTxOutputIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "recipient": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "confirmed",
+              "failed",
+              "rbf"
+            ]
+          },
+          "statusMessage": {
+            "type": "string"
+          },
+          "complete": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "lockTime": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxFee": {
+                "type": "string",
+                "pattern": "^[0-9]+$"
+              }
+            },
+            "required": [
+              "lockTime",
+              "maxFee"
+            ]
+          }
+        },
+        "required": [
+          "bitcoinTxid",
+          "bitcoinTxOutputIndex",
+          "recipient",
+          "amount",
+          "status",
+          "statusMessage",
+          "complete",
+          "parameters"
+        ]
+      },
+      "SbtcDepositNotifyRequest": {
+        "type": "object",
+        "properties": {
+          "network": {
+            "type": "string",
+            "enum": [
+              "mainnet"
+            ]
+          },
+          "bitcoinTxid": {
+            "type": "string",
+            "pattern": "^(?:0x)?[0-9a-fA-F]{64}$"
+          },
+          "bitcoinTxOutputIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "transactionHex": {
+            "type": "string",
+            "pattern": "^(?:0x)?(?:[0-9a-fA-F]{2})+$"
+          },
+          "depositScript": {
+            "type": "string",
+            "pattern": "^(?:0x)?(?:[0-9a-fA-F]{2})+$"
+          },
+          "reclaimScript": {
+            "type": "string",
+            "pattern": "^(?:0x)?(?:[0-9a-fA-F]{2})+$"
+          },
+          "stacksRecipient": {
+            "type": "string",
+            "pattern": "^SP[A-Z0-9]{25,41}$"
+          },
+          "amountSats": {
+            "type": "string",
+            "maxLength": 39,
+            "pattern": "^[0-9]+$"
+          },
+          "maxSignerFeeSats": {
+            "type": "string",
+            "maxLength": 39,
+            "pattern": "^[0-9]+$"
+          }
+        },
+        "required": [
+          "network",
+          "bitcoinTxid",
+          "depositScript",
+          "reclaimScript",
+          "stacksRecipient",
+          "amountSats",
+          "maxSignerFeeSats"
+        ]
+      },
       "PlanResponse": {
         "type": "object",
         "properties": {
@@ -3823,6 +4114,160 @@
           "network",
           "stepId",
           "walletResult"
+        ]
+      },
+      "AttachBroadcastResponse": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "1.0"
+            ]
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string",
+            "enum": [
+              "stacks:mainnet",
+              "stacks:testnet"
+            ]
+          },
+          "data": {
+            "$ref": "#/components/schemas/AttachedBroadcast"
+          },
+          "context": {
+            "$ref": "#/components/schemas/Context"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "network",
+          "data",
+          "context"
+        ]
+      },
+      "AttachedBroadcast": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "nextAction": {
+            "type": "string"
+          },
+          "txid": {
+            "type": "string"
+          },
+          "emilyNotified": {
+            "type": "boolean"
+          },
+          "emilyStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "state",
+          "nextAction",
+          "txid",
+          "emilyNotified",
+          "emilyStatus"
+        ]
+      },
+      "AttachBroadcastRequest": {
+        "type": "object",
+        "properties": {
+          "network": {
+            "type": "string",
+            "enum": [
+              "mainnet",
+              "testnet"
+            ],
+            "description": "Required on every request. There is no default network."
+          },
+          "txid": {
+            "type": "string",
+            "pattern": "^(?:0x)?[0-9a-fA-F]{64}$"
+          },
+          "reclaimPublicKey": {
+            "type": "string",
+            "maxLength": 130
+          }
+        },
+        "required": [
+          "network",
+          "txid"
+        ]
+      },
+      "CancelWorkflowResponse": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "1.0"
+            ]
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string",
+            "enum": [
+              "stacks:mainnet",
+              "stacks:testnet"
+            ]
+          },
+          "data": {
+            "$ref": "#/components/schemas/CancelledWorkflow"
+          },
+          "context": {
+            "$ref": "#/components/schemas/Context"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "network",
+          "data",
+          "context"
+        ]
+      },
+      "CancelledWorkflow": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "nextAction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "nextAction"
+        ]
+      },
+      "CancelWorkflowRequest": {
+        "type": "object",
+        "properties": {
+          "network": {
+            "type": "string",
+            "enum": [
+              "mainnet",
+              "testnet"
+            ],
+            "description": "Required on every request. There is no default network."
+          }
+        },
+        "required": [
+          "network"
         ]
       },
       "WebhookEndpointCreatedResponse": {
@@ -5989,6 +6434,194 @@
         }
       }
     },
+    "/v1/sbtc/deposits/prepare": {
+      "post": {
+        "security": [
+          {
+            "apiKey": []
+          },
+          {
+            "walletSession": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SbtcDepositPrepareRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Unsigned mainnet sBTC deposit address and scripts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SbtcDepositPrepareResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or network mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credentials do not allow this request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit reached. Retry after the number of seconds in retryAfter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sbtc/deposits/notify": {
+      "post": {
+        "security": [
+          {
+            "apiKey": []
+          },
+          {
+            "walletSession": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SbtcDepositNotifyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Emily accepted the deposit for tracking. This is not a mint.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SbtcDepositNotifyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or network mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credentials do not allow this request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit reached. Retry after the number of seconds in retryAfter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/plans": {
       "post": {
         "security": [
@@ -6122,6 +6755,238 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SignatureResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or network mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credentials do not allow this request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such workflow for the caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit reached. Retry after the number of seconds in retryAfter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workflows/{id}/broadcast": {
+      "post": {
+        "security": [
+          {
+            "apiKey": []
+          },
+          {
+            "walletSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachBroadcastRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Found Bitcoin txid attached and Emily notified when scripts match",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachBroadcastResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or network mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Credentials do not allow this request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such workflow for the caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit reached. Retry after the number of seconds in retryAfter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/workflows/{id}/cancel": {
+      "post": {
+        "security": [
+          {
+            "apiKey": []
+          },
+          {
+            "walletSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelWorkflowRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Unsigned workflow marked USER_REJECTED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelWorkflowResponse"
                 }
               }
             }
