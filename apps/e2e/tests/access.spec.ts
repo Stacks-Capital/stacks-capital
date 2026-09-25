@@ -2,18 +2,7 @@ import { AxeBuilder } from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
 import { installWallet } from "./wallet.ts";
 
-const TABS = [
-  "Overview",
-  "Deposit BTC",
-  "Earn",
-  "Borrow",
-  "Swap",
-  "Liquidity",
-  "Staking",
-  "Positions",
-  "Risk",
-  "Activity",
-];
+const TABS = ["Overview", "Bridge", "Earn", "Borrow", "Swap", "Liquidity", "Staking", "Positions", "Risk", "Activity"];
 
 async function signIn(page: Page) {
   await installWallet(page);
@@ -108,11 +97,11 @@ test("workflow drawer manages focus, traps Tab, and dismisses on Escape", async 
 test("canonical states render appropriately across views", async ({ page }) => {
   await page.goto("/");
 
-  // 1. Signed-out Empty state on Overview, Swap, and Deposit BTC
+  // 1. Signed-out Empty state on Overview, Swap, and Bridge
   await expect(page.getByText("Connect a wallet to see what it holds.")).toBeVisible();
   await page.getByRole("navigation").getByRole("button", { name: "Swap", exact: true }).click();
   await expect(page.getByText("Connect a wallet and sign in to compare swap routes.")).toBeVisible();
-  await page.getByRole("navigation").getByRole("button", { name: "Deposit BTC", exact: true }).click();
+  await page.getByRole("navigation").getByRole("button", { name: "Bridge", exact: true }).click();
   await expect(page.getByText("Connect a wallet and sign in to deposit or withdraw Bitcoin.")).toBeVisible();
 
   // 2. Verified canonical screen headers across new screens
