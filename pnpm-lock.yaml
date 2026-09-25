@@ -223,6 +223,9 @@ importers:
       redis:
         specifier: 6.2.1
         version: 6.2.1
+      sbtc:
+        specifier: 0.3.2
+        version: 0.3.2
       zod:
         specifier: 4.6.5
         version: 4.6.5
@@ -633,6 +636,9 @@ packages:
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
 
+  '@btc-helpers/rpc@2.0.0':
+    resolution: {integrity: sha512-Y5T3MUCW3lMENJiOJEk4DOwTW6GY/b/xmcf+kxoPZZw2uCyY+m3a9wV9wrJdIceqv3ET2iLFbGHjLwl25UYwGA==}
+
   '@changesets/apply-release-plan@8.1.0':
     resolution: {integrity: sha512-M93HOGyX3ssg6He3b5NotaHtQVu6uajHS6UIQ28xKt2RzskCy73ayX4I914qBKjTJmrE4YFlELQjfcqxbmGLJw==}
     engines: {node: ^22.11 || ^24 || >=26}
@@ -837,6 +843,9 @@ packages:
 
   '@noble/secp256k1@1.7.2':
     resolution: {integrity: sha512-/qzwYl5eFLH8OWIecQWM31qld2g1NfjgylK+TNhqtaUKP37Nm+Y+z30Fjhw0Ct8p9yCQEm2N3W/AckdIb3SMcQ==}
+
+  '@noble/secp256k1@2.3.0':
+    resolution: {integrity: sha512-0TQed2gcBbIrh7Ccyw+y/uZQvbJwm7Ao4scBUxqpBCcsOlZG0O4KGfjtNAy/li4W8n1xt3dxrwJ0beZ2h2G6Kw==}
 
   '@oxc-project/types@0.149.0':
     resolution: {integrity: sha512-Efcc+iF0j3Bf67YjEqIqWXbX5XddXoK/Mw4K1/JuXwRCZ8N16VR7iT23nlCc9XrveFVh/E5Rqs2StT0V8v9LdA==}
@@ -1083,6 +1092,9 @@ packages:
 
   '@scure/bip39@1.6.0':
     resolution: {integrity: sha512-+lF0BbLiJNwVlev4eKelw1WWLaiKXw7sSl8T6FvBlWkdX+94aGJ4o8XjUdlyhTCjd8c+B3KT3JfS8P0bLRNU6A==}
+
+  '@scure/btc-signer@1.8.1':
+    resolution: {integrity: sha512-8nX9T++dFyKpvqksNHfSi9CgRsGnHAQtCdIQ1y1GmbCGLpV97v4MUyemUUT6uDumKL3oo3m4niyY6A32nmdLuQ==}
 
   '@scure/btc-signer@2.4.1':
     resolution: {integrity: sha512-ch6h66o9nPhEoe/KciMMUJeH2MBPB8UAJI1if35Fxl6885lKTsc9YoCRqTW0/RjI0Vv9GSg1tmKtHHODyAw81g==}
@@ -1965,6 +1977,12 @@ packages:
     resolution: {integrity: sha512-agQGBnBCw8OoKQZMUxcaQPaOowdfxyEmBsq4CNAXAXCyB8KxlRG0lTl5GADJIsMEDaFb0trhXBHKYsjTWa5kuw==}
     engines: {node: '>= 20.19.0'}
 
+  micro-packed@0.6.3:
+    resolution: {integrity: sha512-VmVkyc7lIzAq/XCPFuLc/CwQ7Ehs5XDK3IwqsZHiBIDttAI9Gs7go6Lv4lNRuAIKrGKcRTtthFKUNyHS0S4wJQ==}
+
+  micro-packed@0.7.3:
+    resolution: {integrity: sha512-2Milxs+WNC00TRlem41oRswvw31146GiSaoCT7s3Xi2gMUglW5QBeqlQaZeHr5tJx9nm3i57LNXPqxOOaWtTYg==}
+
   mime-db@1.52.0:
     resolution: {integrity: sha512-sPU4uV7dYlvtWJxwwxHD0PuihVNiE7TyAbQ5SWxDCB9mUYvOgroQOwYQQOKPJ8CIbE+1ETVlOoK1UC2nU3gYvg==}
     engines: {node: '>= 0.6'}
@@ -2250,6 +2268,9 @@ packages:
   saxes@6.0.0:
     resolution: {integrity: sha512-xAg7SOnEhrm5zI3puOOKyy1OMcMlIJZYNJY7xLBwSze0UjhPLnWfj2GF2EpT0jmzaJKIWKHLsaSSajf35bcYnA==}
     engines: {node: '>=v12.22.7'}
+
+  sbtc@0.3.2:
+    resolution: {integrity: sha512-NjU9vDz2d1XMBGplT9S1x2IRJTIbZX4wAq8TNEMFiUmaj7MVp/3cJTPHiHmS4P+hIHNfrHLUUoe/i4ToIkp5yw==}
 
   scheduler@0.28.0:
     resolution: {integrity: sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw==}
@@ -2791,6 +2812,13 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
+  '@btc-helpers/rpc@2.0.0':
+    dependencies:
+      '@scure/base': 1.2.6
+      cross-fetch: 3.2.0
+    transitivePeerDependencies:
+      - encoding
+
   '@changesets/apply-release-plan@8.1.0':
     dependencies:
       '@changesets/config': 4.0.0
@@ -3013,6 +3041,8 @@ snapshots:
   '@noble/secp256k1@1.7.1': {}
 
   '@noble/secp256k1@1.7.2': {}
+
+  '@noble/secp256k1@2.3.0': {}
 
   '@oxc-project/types@0.149.0': {}
 
@@ -3467,6 +3497,13 @@ snapshots:
     dependencies:
       '@noble/hashes': 1.8.0
       '@scure/base': 1.2.6
+
+  '@scure/btc-signer@1.8.1':
+    dependencies:
+      '@noble/curves': 1.9.7
+      '@noble/hashes': 1.8.0
+      '@scure/base': 1.2.6
+      micro-packed: 0.7.3
 
   '@scure/btc-signer@2.4.1':
     dependencies:
@@ -4749,6 +4786,14 @@ snapshots:
     dependencies:
       '@scure/base': 2.4.0
 
+  micro-packed@0.6.3:
+    dependencies:
+      '@scure/base': 1.1.9
+
+  micro-packed@0.7.3:
+    dependencies:
+      '@scure/base': 1.2.6
+
   mime-db@1.52.0: {}
 
   mime-types@2.1.35:
@@ -5056,6 +5101,21 @@ snapshots:
   saxes@6.0.0:
     dependencies:
       xmlchars: 2.2.0
+
+  sbtc@0.3.2:
+    dependencies:
+      '@btc-helpers/rpc': 2.0.0
+      '@noble/secp256k1': 2.3.0
+      '@scure/base': 1.2.6
+      '@scure/btc-signer': 1.8.1
+      '@stacks/common': 7.6.0
+      '@stacks/encryption': 7.6.0
+      '@stacks/network': 7.6.0
+      '@stacks/transactions': 7.6.0
+      c32check: 2.0.0
+      micro-packed: 0.6.3
+    transitivePeerDependencies:
+      - encoding
 
   scheduler@0.28.0: {}
 
