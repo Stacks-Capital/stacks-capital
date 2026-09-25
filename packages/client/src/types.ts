@@ -168,12 +168,42 @@ export type SwapQuoteComparison = {
   offers: SwapOffer[];
   unavailable: { provider: SwapProvider; reason: string }[];
 };
+export type PreparedSbtcDeposit = {
+  address: string;
+  depositScript: string;
+  reclaimScript: string;
+  signersPublicKey: string;
+  reclaimLockTime: number;
+  amountSats: string;
+  maxSignerFeeSats: string;
+  stacksRecipient: string;
+  bitcoinNetwork: "mainnet";
+  emilyNotifyPath: "/deposit";
+};
+export type NotifiedSbtcDeposit = {
+  bitcoinTxid: string;
+  bitcoinTxOutputIndex: number;
+  recipient: string;
+  amount: string;
+  status: "pending" | "accepted" | "confirmed" | "failed" | "rbf";
+  statusMessage: string;
+  complete: false;
+  parameters: { lockTime: number; maxFee: string };
+};
 export type StartedWorkflow = { workflowId: string; state: string; nextAction: string; plan: Plan };
 export type SignatureOutcome = {
   state: string;
   nextAction: string;
   outcome: "BROADCAST" | "SIGNED" | "UNKNOWN";
   txid: string | null;
+};
+export type CancelledWorkflow = { state: string; nextAction: string };
+export type AttachedBroadcast = {
+  state: string;
+  nextAction: string;
+  txid: string;
+  emilyNotified: boolean;
+  emilyStatus: string | null;
 };
 
 export type LinkedCollateral = {
@@ -402,6 +432,7 @@ export type WorkflowSummary = {
   createdAt: string;
   updatedAt: string;
   transitionCount: number;
+  lastTxid?: string | null;
 };
 
 export type CashFlowAttributionView = {
