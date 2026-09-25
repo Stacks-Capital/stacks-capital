@@ -8,7 +8,15 @@ import {
 } from "@stacks-capital/client";
 import { signIn } from "./session.ts";
 import { messageFor, panelState, UNAVAILABLE } from "./state.ts";
-import { connectWallet, findProvider, findStacksAddress, installedWallets, messageSigner } from "./wallet.ts";
+import {
+  connectBitcoinWallet,
+  connectWallet,
+  findBitcoinPayment,
+  findProvider,
+  findStacksAddress,
+  installedWallets,
+  messageSigner,
+} from "./wallet.ts";
 
 const MAINNET_ADDRESS = "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR";
 const TESTNET_ADDRESS = "ST20YV8P5YG5RZ59QPCBAN4FEVP2F20EABVGZCPK0";
@@ -67,7 +75,10 @@ describe("connecting", () => {
     };
     const wallet = await connectWallet("xverse", "mainnet", provider);
     assert.deepEqual(wallet, { id: "xverse", address: MAINNET_ADDRESS, network: "mainnet" });
-    assert.deepEqual(calls[0], { method: "wallet_connect", params: { addresses: ["stacks"], network: "Mainnet" } });
+    assert.deepEqual(calls[0], {
+      method: "wallet_connect",
+      params: { addresses: ["stacks", "bitcoin"], network: "Mainnet" },
+    });
   });
 
   it("asks Xverse for Testnet when the app is on testnet", async () => {
@@ -80,12 +91,73 @@ describe("connecting", () => {
     };
     const wallet = await connectWallet("xverse", "testnet", provider);
     assert.deepEqual(wallet, { id: "xverse", address: TESTNET_ADDRESS, network: "testnet" });
-    assert.deepEqual(calls[0], { method: "wallet_connect", params: { addresses: ["stacks"], network: "Testnet" } });
+    assert.deepEqual(calls[0], {
+      method: "wallet_connect",
+      params: { addresses: ["stacks", "bitcoin"], network: "Testnet" },
+    });
   });
 
   it("refuses a mainnet address while the app is on testnet", async () => {
     const provider = { request: async () => ({ addresses: [{ address: MAINNET_ADDRESS }] }) };
     await assert.rejects(connectWallet("leather", "testnet", provider), /Switch the wallet to testnet/);
+  });
+
+  it("keeps a Bitcoin payment key when the wallet shares one", async () => {
+    const payment = {
+      symbol: "BTC",
+      type: "p2wpkh",
+      address: "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+      publicKey: "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    };
+    const provider = {
+      request: async () => ({
+        addresses: [{ address: MAINNET_ADDRESS, symbol: "STX" }, payment],
+      }),
+    };
+    const wallet = await connectWallet("leather", "mainnet", provider);
+    assert.equal(wallet.bitcoinAddress, payment.address);
+    assert.equal(wallet.bitcoinPublicKey, payment.publicKey);
+    assert.deepEqual(findBitcoinPayment({ addresses: [payment] }), {
+      address: payment.address,
+      publicKey: payment.publicKey,
+    });
+    assert.equal(findBitcoinPayment({ addresses: [{ address: MAINNET_ADDRESS, symbol: "STX" }] }), null);
+  });
+
+  it("connects a Bitcoin payment address without changing the Stacks session", async () => {
+    const payment = {
+      symbol: "BTC",
+      type: "p2wpkh",
+      address: "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+      publicKey: "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    };
+    const calls: { method: string; params: unknown }[] = [];
+    const provider = {
+      request: async (method: string, params?: unknown) => {
+        calls.push({ method, params });
+        return { addresses: [payment] };
+      },
+    };
+    const bitcoin = await connectBitcoinWallet("leather", "mainnet", provider);
+    assert.deepEqual(bitcoin, { address: payment.address, publicKey: payment.publicKey, walletId: "leather" });
+    assert.deepEqual(calls[0], { method: "getAddresses", params: { network: "mainnet" } });
+  });
+
+  it("prefers a payment p2wpkh address over a later taproot address", () => {
+    const payment = {
+      symbol: "BTC",
+      type: "p2wpkh",
+      address: "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+      publicKey: "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    };
+    const taproot = {
+      symbol: "BTC",
+      type: "p2tr",
+      address: "bc1p5d7rjq7g6rdk2yhzks9smlaqtedr4dekq08ge8zt7wzfxmkdk3nqx4j3v4",
+      publicKey: "e8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35",
+    };
+    const found = findBitcoinPayment({ addresses: [taproot, payment] });
+    assert.equal(found?.address, payment.address);
   });
 
   it("asks Leather with getAddresses", async () => {
@@ -226,7 +298,8 @@ describe("error messages", () => {
     });
     assert.equal(messageFor(new CapitalTransportError("network", "down")).canRetry, true);
     assert.equal(messageFor(new CapitalTransportError("aborted", "cancelled")).canRetry, false);
-    assert.equal(messageFor(new Error("anything")).message, "Something went wrong.");
+    assert.equal(messageFor(new Error("Leather rejected sendTransfer")).message, "Leather rejected sendTransfer");
+    assert.equal(messageFor({}).message, "Something went wrong.");
   });
 });
 
@@ -253,7 +326,7 @@ describe("shell formatting and navigation (Task 2 / I31)", () => {
     const { SHELL_NAV_TABS } = await import("./shell.ts");
     assert.deepEqual(SHELL_NAV_TABS, [
       "Overview",
-      "Deposit BTC",
+      "Bridge",
       "Earn",
       "Borrow",
       "Swap",
