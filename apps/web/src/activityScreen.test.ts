@@ -68,6 +68,9 @@ describe("Activity & Durable Workflows State (I38)", () => {
       assert.equal(classifyWorkflowGroup("submitted"), "active");
       assert.equal(classifyWorkflowGroup("awaiting_signature"), "active");
 
+      assert.equal(classifyWorkflowGroup("broadcast_unknown"), "recovery_needed");
+      assert.equal(classifyWorkflowGroup("user_rejected"), "completed");
+
       assert.equal(classifyWorkflowGroup("reclaimable"), "recovery_needed");
       assert.equal(classifyWorkflowGroup("delayed"), "recovery_needed");
       assert.equal(classifyWorkflowGroup("expired"), "recovery_needed");
@@ -139,7 +142,9 @@ describe("Activity & Durable Workflows State (I38)", () => {
   describe("Formatting Helpers", () => {
     it("formats known protocol actions into clear human descriptions", () => {
       assert.equal(formatWorkflowAction("sbtc_deposit"), "Bitcoin Deposit (BTC → sBTC)");
+      assert.equal(formatWorkflowAction("deposit_sbtc"), "Bitcoin Deposit (BTC → sBTC)");
       assert.equal(formatWorkflowAction("sbtc_withdrawal"), "Bitcoin Withdrawal (sBTC → BTC)");
+      assert.equal(formatWorkflowAction("withdraw_sbtc"), "Bitcoin Withdrawal (sBTC → BTC)");
       assert.equal(formatWorkflowAction("zest_supply"), "Zest Earn Supply");
       assert.equal(formatWorkflowAction("granite_borrow"), "Granite Borrow (USDCx)");
       assert.equal(formatWorkflowAction("bitflow_swap"), "Bitflow Swap");
