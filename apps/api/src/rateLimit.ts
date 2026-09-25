@@ -9,7 +9,7 @@ export interface RateLimiter {
 
 // Requests per window for each kind of caller.
 export type RateLimits = { key: number; session: number; client: number; windowSeconds: number };
-export const DEFAULT_RATE_LIMITS: RateLimits = { key: 600, session: 120, client: 60, windowSeconds: 60 };
+export const DEFAULT_RATE_LIMITS: RateLimits = { key: 600, session: 600, client: 60, windowSeconds: 60 };
 
 // Fixed windows: every caller's window starts on the same boundary, so a counter key never needs cleanup logic.
 function windowOf(now: Date, windowSeconds: number) {
