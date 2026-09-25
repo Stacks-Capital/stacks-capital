@@ -112,6 +112,22 @@ describe("credentials", () => {
       ).code,
       "UNAUTHORIZED",
     );
+    assert.equal(
+      (
+        await expectError("/v1/sbtc/deposits/prepare", 401, {
+          method: "POST",
+          body: JSON.stringify({
+            network: "mainnet",
+            stacksRecipient: "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR",
+            amountSats: "100000",
+            maxSignerFeeSats: "1000",
+            reclaimPublicKey: "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          }),
+          headers: { "content-type": "application/json" },
+        })
+      ).code,
+      "UNAUTHORIZED",
+    );
   });
 
   it("reject a bearer token that is neither a key nor a session", async () => {
@@ -175,12 +191,16 @@ describe("OpenAPI document", () => {
       "/v1/prices",
       "/v1/prices/valuations",
       "/v1/quotes",
+      "/v1/sbtc/deposits/notify",
+      "/v1/sbtc/deposits/prepare",
       "/v1/swaps/markets",
       "/v1/swaps/quotes",
       "/v1/webhooks/endpoints",
       "/v1/webhooks/endpoints/{id}",
       "/v1/workflows",
       "/v1/workflows/{id}",
+      "/v1/workflows/{id}/broadcast",
+      "/v1/workflows/{id}/cancel",
       "/v1/workflows/{id}/signature",
     ]);
   });
