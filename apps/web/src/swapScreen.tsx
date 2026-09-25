@@ -1,5 +1,5 @@
 import type { SwapAsset, SwapOffer, SwapProvider, SwapQuoteComparison } from "@stacks-capital/client";
-import { useCapital, usePrices } from "@stacks-capital/react";
+import { useCapital, usePortfolio, usePrices } from "@stacks-capital/react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { WalletId } from "@stacks-capital/wallets";
 import {
@@ -13,7 +13,29 @@ import {
   toWalletCallRequest,
   type ConnectedWallet,
 } from "@stacks-capital/ui";
-import { fromBaseUnits, toBaseUnits } from "./swapState.ts";
+import {
+  formatSpotUsd,
+  formatUsdFromBase,
+  formatUsdFromDisplay,
+  fromBaseUnits,
+  type HiroAccountBalances,
+  maxSwapQuantity,
+  spendableHiroQuantity,
+  toBaseUnits,
+  tokenUsdFeedKey,
+  type TokenUsdQuote,
+  usdHint,
+  walletEntryQuantity,
+} from "./swapState.ts";
+import { pickUsdQuote, usePublicSpotQuotes } from "./spotPrices.ts";
+
+const HIRO_BALANCES_URL = "https://api.hiro.so/extended/v1/address";
+
+async function loadHiroBalances(address: string): Promise<HiroAccountBalances> {
+  const response = await fetch(`${HIRO_BALANCES_URL}/${address}/balances`);
+  if (!response.ok) throw new Error(`Hiro balances ${response.status}`);
+  return (await response.json()) as HiroAccountBalances;
+}
 
 const FALLBACK_ASSETS: readonly SwapAsset[] = [
   {
@@ -57,10 +79,7 @@ function providerName(provider: SwapProvider): string {
 }
 
 function priceFeedKey(asset: SwapAsset): string | null {
-  if (asset.assetId === "stacks:mainnet:native:stx") return "STX/USD";
-  if (asset.assetId.endsWith(":usdcx-token") || asset.symbol === "USDCx") return "USDC/USD";
-  if (asset.symbol === "sBTC" || asset.symbol === "aBTC") return "BTC/USD";
-  return null;
+  return tokenUsdFeedKey(asset.symbol, asset.assetId);
 }
 
 function amount(quantity: string, asset: SwapAsset, maximumFractionDigits = 8): string {
@@ -92,9 +111,22 @@ function unavailableReason(reason: string): string {
   return reason;
 }
 
+function readSpendable(
+  assetId: string,
+  hiro: HiroAccountBalances | null,
+  portfolioQuantity: string | null,
+): string | null {
+  if (hiro !== null) return spendableHiroQuantity(assetId, hiro);
+  return portfolioQuantity;
+}
+
 export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; signedIn: boolean }) {
   const { client } = useCapital();
   const prices = usePrices({ staleMs: 15_000 });
+  const spots = usePublicSpotQuotes(prices.data?.data.items);
+  const portfolio = usePortfolio({ enabled: signedIn && wallet?.network === "mainnet" });
+  const [hiroBalances, setHiroBalances] = useState<HiroAccountBalances | null>(null);
+  const [balancesStatus, setBalancesStatus] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const [assets, setAssets] = useState<SwapAsset[]>([...FALLBACK_ASSETS]);
   const [marketsNote, setMarketsNote] = useState<string | null>(null);
   const [inputId, setInputId] = useState(FALLBACK_ASSETS[0]?.assetId ?? "");
@@ -115,6 +147,30 @@ export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; sig
     const timer = setInterval(() => setClock(Date.now()), 1_000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (wallet === null || wallet.network !== "mainnet") {
+      setHiroBalances(null);
+      setBalancesStatus("idle");
+      return;
+    }
+    let cancelled = false;
+    setBalancesStatus("loading");
+    void loadHiroBalances(wallet.address)
+      .then((data) => {
+        if (cancelled) return;
+        setHiroBalances(data);
+        setBalancesStatus("ready");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setHiroBalances(null);
+        setBalancesStatus("failed");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [wallet]);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,6 +201,17 @@ export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; sig
   const best = comparison?.offers[0] ?? null;
   const selected = comparison?.offers.find((offer) => offer.provider === selectedProvider) ?? best;
   const expired = selected !== null && Date.parse(selected.expiresAt) <= clock;
+  const portfolioEntries = portfolio.data?.data.entries ?? [];
+  const inputSpendable = readSpendable(
+    inputAsset.assetId,
+    hiroBalances,
+    walletEntryQuantity(portfolioEntries, inputAsset.assetId),
+  );
+  const outputSpendable = readSpendable(
+    outputAsset.assetId,
+    hiroBalances,
+    walletEntryQuantity(portfolioEntries, outputAsset.assetId),
+  );
   let baseAmount = "0";
   let amountError: string | null = null;
   try {
@@ -152,6 +219,16 @@ export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; sig
     if (baseAmount === "0") amountError = "Enter an amount greater than zero.";
   } catch (error) {
     amountError = error instanceof Error ? error.message : "Enter a valid amount.";
+  }
+  let overBalance: string | null = null;
+  if (amountError === null && inputSpendable !== null) {
+    try {
+      if (BigInt(baseAmount) > BigInt(inputSpendable)) {
+        overBalance = `This is more than the wallet balance of ${fromBaseUnits(inputSpendable, inputAsset.decimals)} ${inputAsset.symbol}.`;
+      }
+    } catch {
+      overBalance = null;
+    }
   }
 
   function clearQuotes() {
@@ -258,6 +335,15 @@ export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; sig
         return;
       }
       setSignedNote("Signed in your wallet. CapitalOS does not broadcast or reconcile this provider route.");
+      setBalancesStatus("loading");
+      void loadHiroBalances(wallet.address)
+        .then((data) => {
+          setHiroBalances(data);
+          setBalancesStatus("ready");
+        })
+        .catch(() => {
+          setBalancesStatus("failed");
+        });
     } catch (error) {
       setProblem(messageFor(error).message);
     } finally {
@@ -287,11 +373,20 @@ export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; sig
 
   const inputFeed = priceFeedKey(inputAsset);
   const outputFeed = priceFeedKey(outputAsset);
-  const inputPrice =
-    inputFeed === null ? undefined : prices.data?.data.items.find((item) => item.feedKey === inputFeed);
-  const outputPrice =
-    outputFeed === null ? undefined : prices.data?.data.items.find((item) => item.feedKey === outputFeed);
+  const inputPrice = pickUsdQuote(inputFeed, prices.data?.data.items, spots.items);
+  const outputPrice = pickUsdQuote(outputFeed, prices.data?.data.items, spots.items);
+  const usdLoading = prices.isLoading || spots.loading;
   const venueCount = new Set(assets.flatMap((asset) => asset.providers)).size;
+  const canUseMax = inputSpendable !== null && inputSpendable !== "0";
+  const payUsd = formatUsdFromDisplay(displayAmount, inputAsset.decimals, inputPrice);
+  const receiveUsd =
+    selected === null ? null : formatUsdFromBase(selected.amountOut, outputAsset.decimals, outputPrice);
+  const inputBalanceUsd =
+    inputSpendable === null ? null : formatUsdFromBase(inputSpendable, inputAsset.decimals, inputPrice);
+  const outputBalanceUsd =
+    outputSpendable === null ? null : formatUsdFromBase(outputSpendable, outputAsset.decimals, outputPrice);
+  const inputSpot = formatSpotUsd(inputPrice);
+  const outputSpot = formatSpotUsd(outputPrice);
 
   return (
     <Panel title="Swap across Stacks">
@@ -317,12 +412,20 @@ export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; sig
             <div>
               <span>Pay asset</span>
               <strong>{inputAsset.name}</strong>
-              <small>{inputPrice?.status ?? "price unavailable"}</small>
+              <small>
+                {inputSpot === null
+                  ? "USD unavailable"
+                  : `${inputSpot} · ${inputPrice?.status ?? "observed"}`}
+              </small>
             </div>
             <div>
               <span>Receive asset</span>
               <strong>{outputAsset.name}</strong>
-              <small>{outputPrice?.status ?? "price unavailable"}</small>
+              <small>
+                {outputSpot === null
+                  ? "USD unavailable"
+                  : `${outputSpot} · ${outputPrice?.status ?? "observed"}`}
+              </small>
             </div>
             <div>
               <span>Listed tokens</span>
@@ -372,6 +475,21 @@ export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; sig
             selected={inputAsset}
             otherId={outputAsset.assetId}
             assets={assets}
+            balance={inputSpendable}
+            balanceUsd={inputBalanceUsd}
+            balanceStatus={balancesStatus}
+            usd={payUsd}
+            usdLoading={usdLoading}
+            {...(canUseMax
+              ? {
+                  onMax: () => {
+                    setDisplayAmount(
+                      fromBaseUnits(maxSwapQuantity(inputAsset.assetId, inputSpendable), inputAsset.decimals),
+                    );
+                    setSignedNote(null);
+                  },
+                }
+              : {})}
             onSelect={(assetId) => {
               setInputId(assetId);
               clearQuotes();
@@ -387,7 +505,9 @@ export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; sig
               }}
             />
           </AssetField>
-          <small className="swap-amount-hint">{amountError ?? `${baseAmount} base units`}</small>
+          <small className={`swap-amount-hint${overBalance !== null || amountError !== null ? " error-hint" : ""}`}>
+            {amountError ?? overBalance ?? `${usdHint(payUsd, usdLoading)} · ${baseAmount} base units`}
+          </small>
 
           <button
             type="button"
@@ -406,6 +526,11 @@ export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; sig
             selected={outputAsset}
             otherId={inputAsset.assetId}
             assets={assets}
+            balance={outputSpendable}
+            balanceUsd={outputBalanceUsd}
+            balanceStatus={balancesStatus}
+            usd={receiveUsd}
+            usdLoading={usdLoading}
             onSelect={(assetId) => {
               setOutputId(assetId);
               clearQuotes();
@@ -418,7 +543,7 @@ export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; sig
               ? busy
                 ? "Finding the best route…"
                 : "Enter an amount to preview the best route"
-              : `Minimum ${amount(selected.minimumAmountOut, outputAsset)}`}
+              : `Minimum ${amount(selected.minimumAmountOut, outputAsset)} · ${usdHint(receiveUsd, usdLoading)}`}
           </small>
 
           <div className="swap-slippage-row">
@@ -443,6 +568,9 @@ export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; sig
             inputAsset={inputAsset}
             outputAsset={outputAsset}
             payDisplay={displayAmount}
+            payUsd={payUsd}
+            receiveUsd={receiveUsd}
+            outputPrice={outputPrice}
             slippageBps={slippageBps}
             busy={busy}
             expired={expired}
@@ -486,6 +614,18 @@ export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; sig
   );
 }
 
+function balanceCopy(
+  asset: SwapAsset,
+  quantity: string | null,
+  status: "idle" | "loading" | "ready" | "failed",
+  usd: string | null,
+): string {
+  const dollar = usd === null ? "" : ` · ${usdHint(usd)}`;
+  if (quantity !== null) return `Balance: ${fromBaseUnits(quantity, asset.decimals)} ${asset.symbol}${dollar}`;
+  if (status === "loading") return "Balance: loading…";
+  return "Balance: unavailable";
+}
+
 function AssetField({
   id,
   label,
@@ -494,6 +634,12 @@ function AssetField({
   selected,
   otherId,
   assets,
+  balance,
+  balanceUsd,
+  balanceStatus,
+  usd,
+  usdLoading,
+  onMax,
   onSelect,
   children,
 }: {
@@ -504,6 +650,12 @@ function AssetField({
   selected: SwapAsset;
   otherId: string;
   assets: readonly SwapAsset[];
+  balance?: string | null;
+  balanceUsd?: string | null;
+  balanceStatus?: "idle" | "loading" | "ready" | "failed";
+  usd?: string | null;
+  usdLoading?: boolean;
+  onMax?: () => void;
   onSelect: (assetId: string) => void;
   children: ReactNode;
 }) {
@@ -517,7 +669,14 @@ function AssetField({
     : [selected, ...filtered.filter((asset) => asset.assetId !== selected.assetId)];
   return (
     <div className="swap-token-box">
-      <label htmlFor={id}>{label}</label>
+      <div className="swap-token-head">
+        <label htmlFor={id}>{label}</label>
+        {onMax !== undefined ? (
+          <button type="button" className="swap-max-btn" aria-label="Use maximum spendable amount" onClick={onMax}>
+            Max
+          </button>
+        ) : null}
+      </div>
       <div className="swap-token-line">
         <div className="swap-asset-picker">
           <input
@@ -544,6 +703,10 @@ function AssetField({
         </div>
         {children}
       </div>
+      <p className="token-usd">{usdHint(usd ?? null, usdLoading === true)}</p>
+      <p className="swap-balance-row">
+        {balanceCopy(selected, balance ?? null, balanceStatus ?? "idle", balanceUsd ?? null)}
+      </p>
     </div>
   );
 }
@@ -561,6 +724,9 @@ function RoutePreview({
   inputAsset,
   outputAsset,
   payDisplay,
+  payUsd,
+  receiveUsd,
+  outputPrice,
   slippageBps,
   busy,
   expired,
@@ -572,6 +738,9 @@ function RoutePreview({
   inputAsset: SwapAsset;
   outputAsset: SwapAsset;
   payDisplay: string;
+  payUsd: string | null;
+  receiveUsd: string | null;
+  outputPrice: TokenUsdQuote | undefined;
   slippageBps: number;
   busy: boolean;
   expired: boolean;
@@ -597,6 +766,9 @@ function RoutePreview({
         <strong>
           {payDisplay} {inputAsset.symbol} → {amount(selected.amountOut, outputAsset)}
         </strong>
+        <small>
+          {usdHint(payUsd)} → {usdHint(receiveUsd)}
+        </small>
         <small>
           Minimum {amount(selected.minimumAmountOut, outputAsset)} · {slippageBps / 100}% max slippage
           {expired ? " · quote expired" : ` · ${observedAge(selected.observedAt, now)}`}
@@ -633,7 +805,10 @@ function RoutePreview({
               </span>
               <span>
                 <strong>{amount(offer.amountOut, outputAsset)}</strong>
-                <small>Min {amount(offer.minimumAmountOut, outputAsset)}</small>
+                <small>
+                  {usdHint(formatUsdFromBase(offer.amountOut, outputAsset.decimals, outputPrice))} · Min{" "}
+                  {amount(offer.minimumAmountOut, outputAsset)}
+                </small>
               </span>
             </button>
           );
