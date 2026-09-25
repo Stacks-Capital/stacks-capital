@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  bitcoinExplorerTxUrl,
   explorerTxUrl,
   formatBlockHeight,
   SHELL_NAV_TABS,
@@ -9,8 +10,16 @@ import {
   workflowAnnouncement,
   type WorkflowProgress,
 } from "./shell.ts";
+import { WorkflowArrivalView } from "./workflowArrival.tsx";
+import {
+  canCancelUnsignedWorkflow,
+  describeWorkflowArrival,
+  workflowActionTitle,
+  workflowArrivalKind,
+} from "./workflowTiming.ts";
 
 export {
+  bitcoinExplorerTxUrl,
   explorerTxUrl,
   formatBlockHeight,
   SHELL_NAV_TABS,
@@ -161,6 +170,7 @@ export function ShellHeader({
   onDisconnect,
   onOpenDrawer,
   drawerBadgeCount = 0,
+  onOpenWalletManager,
 }: {
   network: string;
   networks: readonly string[];
@@ -173,6 +183,7 @@ export function ShellHeader({
   onDisconnect: () => void;
   onOpenDrawer?: () => void;
   drawerBadgeCount?: number;
+  onOpenWalletManager?: () => void;
 }) {
   const [connectMenuOpen, setConnectMenuOpen] = useState(false);
   const connectRef = useRef<HTMLDivElement | null>(null);
@@ -215,6 +226,12 @@ export function ShellHeader({
 
       <div className="shell-actions-group">
         <BlockHeightChip height={blockHeight} />
+
+        {onOpenWalletManager ? (
+          <button type="button" className="drawer-trigger-btn" onClick={onOpenWalletManager}>
+            Wallet Manager
+          </button>
+        ) : null}
 
         {onOpenDrawer ? (
           <button
@@ -283,24 +300,34 @@ export function ShellHeader({
   );
 }
 
+export type WorkflowDrawerItem = {
+  id: string;
+  action?: string | null | undefined;
+  state: string;
+  updatedAt: string;
+  createdAt?: string | null | undefined;
+  nextAction?: string | null | undefined;
+  txId?: string | null | undefined;
+};
+
 export function WorkflowDrawer({
   open,
   onClose,
   workflows = [],
+  onCancelWorkflow,
+  cancellingId = null,
 }: {
   open: boolean;
   onClose: () => void;
-  workflows?: Array<{
-    id: string;
-    action?: string | null | undefined;
-    state: string;
-    updatedAt: string;
-    txId?: string | null | undefined;
-  }>;
+  workflows?: WorkflowDrawerItem[];
+  onCancelWorkflow?: (workflowId: string) => void;
+  cancellingId?: string | null;
 }) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   // Focus moves into the drawer on open and returns to whatever opened it on close.
   useEffect(() => {
@@ -308,6 +335,24 @@ export function WorkflowDrawer({
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeButtonRef.current?.focus();
     return () => returnFocusRef.current?.focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      setSelectedId(null);
+      return;
+    }
+    const live = workflows.find((wf) =>
+      ["SUBMITTED", "CONFIRMING", "STEP_CONFIRMED", "RECONCILING"].includes(wf.state.toUpperCase()),
+    );
+    setSelectedId((current) => current ?? live?.id ?? null);
+  }, [open, workflows]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    setNowMs(Date.now());
+    const id = window.setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => window.clearInterval(id);
   }, [open]);
 
   // aria-modal only tells assistive tech the rest is inert. Tab has to be held inside too.
@@ -370,23 +415,70 @@ export function WorkflowDrawer({
           {workflows.length === 0 ? (
             <p className="muted">No recent workflows in this session.</p>
           ) : (
+            <>
+            <p className="muted drawer-select-hint">
+              Click a transaction to see its stages and time remaining.
+            </p>
             <ul className="drawer-workflow-list">
-              {workflows.map((wf) => (
-                <li key={wf.id} className="drawer-workflow-card">
-                  <div className="wf-card-header">
-                    <strong>{wf.action ?? "workflow"}</strong>
-                    <span className="badge badge-status">{wf.state}</span>
-                  </div>
-                  <p className="monospace wf-id">{wf.id}</p>
-                  {wf.txId ? (
-                    <p className="wf-txid">
-                      Tx: <span className="monospace">{truncateAddress(wf.txId, 10, 8)}</span>
-                    </p>
-                  ) : null}
-                  <small className="muted">{wf.updatedAt}</small>
-                </li>
-              ))}
+              {workflows.map((wf) => {
+                const arrival = describeWorkflowArrival({
+                  action: wf.action,
+                  state: wf.state,
+                  createdAt: wf.createdAt,
+                  nowMs,
+                });
+                const isSelected = wf.id === selectedId;
+                return (
+                  <li key={wf.id} className="drawer-workflow-item">
+                    <button
+                      type="button"
+                      className={`drawer-workflow-card phase-${arrival.phase}${isSelected ? " selected" : ""}`}
+                      aria-pressed={isSelected}
+                      aria-expanded={isSelected}
+                      onClick={() => setSelectedId(isSelected ? null : wf.id)}
+                    >
+                      <div className="wf-card-header">
+                        <strong>{workflowActionTitle(workflowArrivalKind(wf.action))}</strong>
+                        <span className="badge badge-status">{wf.state}</span>
+                      </div>
+                      {wf.action ? <p className="wf-action-code">{wf.action}</p> : null}
+                      <p className="wf-card-remaining">
+                        Time left: <strong>{arrival.remaining}</strong>
+                      </p>
+                      <p className="wf-card-stage">{arrival.headline}</p>
+                      <p className="monospace wf-id">{wf.id}</p>
+                      {wf.txId ? (
+                        <p className="wf-txid">
+                          Tx: <span className="monospace">{truncateAddress(wf.txId, 10, 8)}</span>
+                        </p>
+                      ) : null}
+                      <small className="muted">{wf.updatedAt}</small>
+                    </button>
+                    {canCancelUnsignedWorkflow(wf.state) && onCancelWorkflow ? (
+                      <button
+                        type="button"
+                        className="button-secondary wf-cancel-btn"
+                        disabled={cancellingId === wf.id}
+                        onClick={() => onCancelWorkflow(wf.id)}
+                      >
+                        {cancellingId === wf.id ? "Cancelling…" : "Cancel unsigned"}
+                      </button>
+                    ) : null}
+                    {isSelected ? (
+                      <WorkflowArrivalView
+                        action={wf.action}
+                        state={wf.state}
+                        createdAt={wf.createdAt}
+                        nextAction={wf.nextAction}
+                        nowMs={nowMs}
+                        txid={wf.txId}
+                      />
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
+            </>
           )}
         </section>
       </aside>
