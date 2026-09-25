@@ -365,3 +365,247 @@ export function formatExpiryCountdown(expiresInSeconds: number): {
   }
   return { text: `Quote valid for ${expiresInSeconds}s`, status: "valid" };
 }
+
+/** Leaves 0.01 STX for the Stacks fee when Max is pressed on native STX. */
+export const STX_SWAP_FEE_RESERVE = "10000";
+
+export type HiroAccountBalances = {
+  stx?: { balance?: string; locked?: string };
+  fungible_tokens?: Record<string, { balance?: string }>;
+};
+
+/**
+ * Maps a CapitalOS swap asset id onto the Hiro account-balances key.
+ * Native STX is "stx". SIP-10 tokens use "principal::asset-name".
+ */
+export function hiroTokenKey(assetId: string): "stx" | string | null {
+  if (assetId.includes(":native:stx")) return "stx";
+  const marker = ":contract:";
+  const at = assetId.indexOf(marker);
+  if (at === -1) return null;
+  const rest = assetId.slice(at + marker.length);
+  const split = rest.lastIndexOf(":");
+  if (split <= 0 || split === rest.length - 1) return null;
+  return `${rest.slice(0, split)}::${rest.slice(split + 1)}`;
+}
+
+export function spendableHiroQuantity(assetId: string, response: HiroAccountBalances): string | null {
+  const key = hiroTokenKey(assetId);
+  if (key === null) return null;
+  try {
+    if (key === "stx") {
+      const total = BigInt(response.stx?.balance ?? "0");
+      const locked = BigInt(response.stx?.locked ?? "0");
+      return (total > locked ? total - locked : 0n).toString();
+    }
+    const row = response.fungible_tokens?.[key];
+    return BigInt(row?.balance ?? "0").toString();
+  } catch {
+    return null;
+  }
+}
+
+export function maxSwapQuantity(assetId: string, spendable: string): string {
+  try {
+    const quantity = BigInt(spendable);
+    if (quantity <= 0n) return "0";
+    if (hiroTokenKey(assetId) === "stx") {
+      const reserve = BigInt(STX_SWAP_FEE_RESERVE);
+      return quantity > reserve ? (quantity - reserve).toString() : quantity.toString();
+    }
+    return quantity.toString();
+  } catch {
+    return "0";
+  }
+}
+
+export function walletEntryQuantity(
+  entries: readonly { category: string; assetId: string; quantity: string | null; isReceipt?: boolean }[],
+  assetId: string,
+): string | null {
+  const row = entries.find(
+    (entry) => entry.category === "wallet" && entry.assetId === assetId && entry.isReceipt !== true,
+  );
+  return row?.quantity ?? null;
+}
+
+export const SBTC_MAINNET_ASSET_ID = `stacks:mainnet:contract:${CANONICAL_SWAP_ASSETS.sbtc.mainnetContract}:${CANONICAL_SWAP_ASSETS.sbtc.assetName}`;
+
+/** Floor leftover Leather will accept. Live coin-selection usually needs more. */
+export const BTC_BRIDGE_FEE_RESERVE = "200";
+/** Leather estimates a change-output transaction. Floor 2 sat/vB even when mempool is 1. */
+export const BTC_SEND_FEE_RATE_FLOOR = 2;
+const BTC_SEND_OVERHEAD_VSIZE = 11;
+const BTC_SEND_INPUT_VSIZE = 68;
+const BTC_SEND_P2TR_OUTPUT_VSIZE = 43;
+const BTC_SEND_CHANGE_VSIZE = 31;
+const BTC_SEND_VSIZE_PAD = 40;
+
+export function bitcoinSendVsize(inputCount: number, withChange = true): number {
+  const inputs = inputCount < 1 ? 1 : inputCount;
+  return (
+    BTC_SEND_OVERHEAD_VSIZE +
+    BTC_SEND_INPUT_VSIZE * inputs +
+    BTC_SEND_P2TR_OUTPUT_VSIZE +
+    (withChange ? BTC_SEND_CHANGE_VSIZE : 0) +
+    BTC_SEND_VSIZE_PAD
+  );
+}
+
+export function parseRecommendedFeeRate(body: unknown): number {
+  if (typeof body !== "object" || body === null) return BTC_SEND_FEE_RATE_FLOOR;
+  const fastest = (body as { fastestFee?: unknown }).fastestFee;
+  const rate = typeof fastest === "number" && Number.isFinite(fastest) ? Math.ceil(fastest) : BTC_SEND_FEE_RATE_FLOOR;
+  return rate > BTC_SEND_FEE_RATE_FLOOR ? rate : BTC_SEND_FEE_RATE_FLOOR;
+}
+
+/** Leather `sendTransfer` funds amount + a 2-output fee. Underestimating that is InsufficientFunds. */
+export function bitcoinMinerFeeReserve(feeRateSatPerVbyte: number, inputCount = 1): string {
+  const vsize = bitcoinSendVsize(inputCount, true);
+  const estimated = BigInt(vsize * (feeRateSatPerVbyte < 1 ? 1 : Math.ceil(feeRateSatPerVbyte)));
+  const floor = BigInt(BTC_BRIDGE_FEE_RESERVE);
+  return (estimated > floor ? estimated : floor).toString();
+}
+
+export function countConfirmedUtxos(utxos: readonly MempoolAddressUtxo[]): number {
+  return utxos.filter((utxo) => utxo.status?.confirmed !== false && BigInt(utxo.value ?? 0) > 0n).length;
+}
+
+export type MempoolAddressUtxo = {
+  value?: number | string;
+  status?: { confirmed?: boolean };
+};
+
+export function spendableBtcSats(utxos: readonly MempoolAddressUtxo[]): string | null {
+  try {
+    let total = 0n;
+    for (const utxo of utxos) {
+      if (utxo.status?.confirmed === false) continue;
+      total += BigInt(utxo.value ?? 0);
+    }
+    return total.toString();
+  } catch {
+    return null;
+  }
+}
+
+export function maxBridgePaySats(
+  mode: "deposit" | "withdraw",
+  spendable: string,
+  maxFeeSats: string,
+  minimumSats = "0",
+  minerReserveSats = BTC_BRIDGE_FEE_RESERVE,
+): string {
+  try {
+    const quantity = BigInt(spendable);
+    const minimum = BigInt(minimumSats === "" ? "0" : minimumSats);
+    if (quantity <= 0n) return "0";
+    const leftover =
+      mode === "deposit"
+        ? quantity - BigInt(minerReserveSats === "" ? BTC_BRIDGE_FEE_RESERVE : minerReserveSats)
+        : quantity - BigInt(maxFeeSats === "" ? "0" : maxFeeSats);
+    if (leftover < minimum) return "0";
+    return leftover.toString();
+  } catch {
+    return "0";
+  }
+}
+
+/** sendTransfer cannot spend the whole Bitcoin balance — Leather takes amount + miner fee. */
+export function bitcoinDepositBalanceError(
+  amountSats: string,
+  spendableSats: string,
+  minerReserveSats = BTC_BRIDGE_FEE_RESERVE,
+): string | null {
+  try {
+    const amount = BigInt(amountSats);
+    const spendable = BigInt(spendableSats);
+    const reserve = BigInt(minerReserveSats === "" ? BTC_BRIDGE_FEE_RESERVE : minerReserveSats);
+    if (amount > spendable) return "Amount is more than your Bitcoin balance";
+    if (amount + reserve > spendable) {
+      return "Leather needs more leftover bitcoin for the miner fee. Lower the amount or use Max.";
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export type TokenUsdQuote = {
+  feedKey: string;
+  price: string | null;
+  scale: number;
+  stale?: boolean;
+  status?: string;
+  source?: string;
+};
+
+/** Map a listed token onto an oracle feed. Unknown tokens stay unpriced. */
+export function tokenUsdFeedKey(symbol: string, assetId = ""): string | null {
+  const haystack = `${symbol} ${assetId}`.toLowerCase();
+  if (/\b(sbtc|abtc|xbtc|btc)\b/.test(haystack) || haystack.includes("sbtc-token")) return "BTC/USD";
+  if (/\bstx\b/.test(haystack) || haystack.includes(":native:stx")) return "STX/USD";
+  if (/\b(usdcx|usdc|usda|susdt|aeusdc)\b/.test(haystack)) return "USDC/USD";
+  return null;
+}
+
+export function formatUsdCents(cents: bigint): string {
+  const negative = cents < 0n;
+  const abs = negative ? -cents : cents;
+  const dollars = abs / 100n;
+  const fraction = (abs % 100n).toString().padStart(2, "0");
+  return `${negative ? "-" : ""}$${dollars.toLocaleString("en-US")}.${fraction}`;
+}
+
+/** Dollar equivalent from integer base units and an oracle quote. Never invents a price. */
+export function formatUsdFromBase(
+  quantity: string,
+  decimals: number,
+  quote: TokenUsdQuote | null | undefined,
+): string | null {
+  if (quote === null || quote === undefined || quote.price === null) return null;
+  if (quote.status === "unsupported") return null;
+  try {
+    const units = BigInt(quantity);
+    const price = BigInt(quote.price);
+    if (units < 0n || price <= 0n || decimals < 0 || quote.scale < 0) return null;
+    const denomExp = decimals + quote.scale;
+    const cents = (units * price * 100n) / 10n ** BigInt(denomExp);
+    const label = formatUsdCents(cents);
+    return quote.stale === true || quote.status === "stale" ? `${label} · stale` : label;
+  } catch {
+    return null;
+  }
+}
+
+export function formatUsdFromDisplay(
+  displayAmount: string,
+  decimals: number,
+  quote: TokenUsdQuote | null | undefined,
+): string | null {
+  if (displayAmount.trim() === "") return null;
+  try {
+    return formatUsdFromBase(toBaseUnits(displayAmount, decimals), decimals, quote);
+  } catch {
+    return null;
+  }
+}
+
+export function formatSpotUsd(quote: TokenUsdQuote | null | undefined): string | null {
+  if (quote === null || quote === undefined || quote.price === null) return null;
+  if (quote.status === "unsupported") return null;
+  try {
+    const price = BigInt(quote.price);
+    if (price <= 0n || quote.scale < 0) return null;
+    const cents = (price * 100n) / 10n ** BigInt(quote.scale);
+    const label = formatUsdCents(cents);
+    return quote.stale === true || quote.status === "stale" ? `${label} · stale` : label;
+  } catch {
+    return null;
+  }
+}
+
+export function usdHint(label: string | null, loading = false): string {
+  if (label !== null) return `≈ ${label}`;
+  return loading ? "USD loading…" : "USD unavailable";
+}
