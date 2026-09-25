@@ -2,15 +2,33 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { PlanWire, QuoteWire } from "@stacks-capital/sdk";
 import {
+  bitcoinDepositBalanceError,
+  bitcoinMinerFeeReserve,
+  bitcoinSendVsize,
+  BTC_BRIDGE_FEE_RESERVE,
+  countConfirmedUtxos,
+  parseRecommendedFeeRate,
   CANONICAL_SWAP_ASSETS,
   formatExpiryCountdown,
+  formatSpotUsd,
+  formatUsdFromBase,
+  formatUsdFromDisplay,
   fromBaseUnits,
+  hiroTokenKey,
   isQuoteSignable,
+  maxBridgePaySats,
+  maxSwapQuantity,
   priceImpactCategory,
   reconcileSwapAssets,
+  spendableBtcSats,
+  spendableHiroQuantity,
+  STX_SWAP_FEE_RESERVE,
   type SwapViewLike,
   toBaseUnits,
+  tokenUsdFeedKey,
+  usdHint,
   verifyMinimumOutputEnforcement,
+  walletEntryQuantity,
 } from "./swapState.ts";
 
 // Canonical asset identifiers, exactly as the signed registry and formatAssetId produce them.
@@ -220,5 +238,139 @@ describe("Price Impact Tiers (I36)", () => {
     assert.equal(priceImpactCategory("150"), "medium");
     assert.equal(priceImpactCategory("450"), "high");
     assert.equal(priceImpactCategory(null), "unknown");
+  });
+});
+
+describe("Swap wallet balances and max amount", () => {
+  it("maps native STX and SIP-10 asset ids onto Hiro balance keys", () => {
+    assert.equal(hiroTokenKey("stacks:mainnet:native:stx"), "stx");
+    assert.equal(
+      hiroTokenKey("stacks:mainnet:contract:SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token:sbtc-token"),
+      "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token::sbtc-token",
+    );
+    assert.equal(hiroTokenKey("not-an-asset"), null);
+  });
+
+  it("reads spendable STX after subtracting locked and treats a missing SIP-10 as zero", () => {
+    const response = {
+      stx: { balance: "1500000", locked: "500000" },
+      fungible_tokens: {
+        "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token::sbtc-token": { balance: "250000" },
+      },
+    };
+    assert.equal(spendableHiroQuantity("stacks:mainnet:native:stx", response), "1000000");
+    assert.equal(
+      spendableHiroQuantity(
+        "stacks:mainnet:contract:SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token:sbtc-token",
+        response,
+      ),
+      "250000",
+    );
+    assert.equal(
+      spendableHiroQuantity(
+        "stacks:mainnet:contract:SP1AY6K3PQV5MRT6R4S671NWW2FRVPKM0BR162CT6.leo-token:leo",
+        response,
+      ),
+      "0",
+    );
+  });
+
+  it("uses the full SIP-10 balance for Max and leaves a Stacks fee on native STX", () => {
+    assert.equal(maxSwapQuantity("stacks:mainnet:native:stx", "15000"), "5000");
+    assert.equal(maxSwapQuantity("stacks:mainnet:native:stx", STX_SWAP_FEE_RESERVE), STX_SWAP_FEE_RESERVE);
+    assert.equal(
+      maxSwapQuantity(
+        "stacks:mainnet:contract:SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token:sbtc-token",
+        "250000",
+      ),
+      "250000",
+    );
+  });
+
+  it("reads a wallet entry from portfolio accounting and ignores receipts", () => {
+    assert.equal(
+      walletEntryQuantity(
+        [
+          { category: "supplied", assetId: "stacks:mainnet:native:stx", quantity: "9", isReceipt: false },
+          { category: "wallet", assetId: "stacks:mainnet:native:stx", quantity: "42", isReceipt: false },
+          { category: "wallet", assetId: "stacks:mainnet:native:stx", quantity: "1", isReceipt: true },
+        ],
+        "stacks:mainnet:native:stx",
+      ),
+      "42",
+    );
+    assert.equal(walletEntryQuantity([], "stacks:mainnet:native:stx"), null);
+  });
+});
+
+describe("Bridge wallet balances and max amount", () => {
+  it("sums confirmed Bitcoin UTXOs and ignores unconfirmed ones", () => {
+    assert.equal(
+      spendableBtcSats([
+        { value: "2000", status: { confirmed: true } },
+        { value: 840, status: { confirmed: true } },
+        { value: "5000", status: { confirmed: false } },
+      ]),
+      "2840",
+    );
+    assert.equal(spendableBtcSats([]), "0");
+  });
+
+  it("leaves a miner-fee reserve on deposit Max and a signer-fee reserve on withdraw Max", () => {
+    assert.equal(maxBridgePaySats("deposit", "2840", "1000"), "2640");
+    assert.equal(maxBridgePaySats("deposit", BTC_BRIDGE_FEE_RESERVE, "1000"), "0");
+    assert.equal(maxBridgePaySats("withdraw", "3840", "1000"), "2840");
+    assert.equal(maxBridgePaySats("withdraw", "1000", "1000"), "0");
+    assert.equal(maxBridgePaySats("deposit", "1404", "200", "1000", "386"), "1018");
+    assert.equal(maxBridgePaySats("deposit", "1199", "200", "1000", "386"), "0");
+  });
+
+  it("sizes Leather sendTransfer as a 2-output fee and never under-reserves 200 sats", () => {
+    assert.equal(bitcoinSendVsize(1, true), 193);
+    assert.equal(parseRecommendedFeeRate({ fastestFee: 1 }), 2);
+    assert.equal(parseRecommendedFeeRate({ fastestFee: 5 }), 5);
+    assert.equal(bitcoinMinerFeeReserve(2, 1), "386");
+    assert.equal(bitcoinMinerFeeReserve(1, 1), "200");
+    assert.equal(
+      countConfirmedUtxos([
+        { value: "1404", status: { confirmed: true } },
+        { value: "10", status: { confirmed: false } },
+      ]),
+      1,
+    );
+  });
+
+  it("blocks a deposit that spends the whole Bitcoin balance and leaves no miner fee", () => {
+    assert.match(bitcoinDepositBalanceError("1404", "1404") ?? "", /miner fee/);
+    assert.match(bitcoinDepositBalanceError("1204", "1404", "386") ?? "", /miner fee/);
+    assert.match(bitcoinDepositBalanceError("2001", "1404") ?? "", /more than your Bitcoin balance/);
+    assert.equal(bitcoinDepositBalanceError("1018", "1404", "386"), null);
+    assert.equal(bitcoinDepositBalanceError("1000", "2500"), null);
+  });
+});
+
+describe("Token dollar equivalents", () => {
+  const btc = { feedKey: "BTC/USD", price: "7000000000000", scale: 8 };
+  const stx = { feedKey: "STX/USD", price: "65000000", scale: 8 };
+  const usdc = { feedKey: "USDC/USD", price: "100000000", scale: 8 };
+
+  it("maps known tokens onto oracle feeds and leaves unknown tokens unpriced", () => {
+    assert.equal(tokenUsdFeedKey("sBTC"), "BTC/USD");
+    assert.equal(tokenUsdFeedKey("STX", "stacks:mainnet:native:stx"), "STX/USD");
+    assert.equal(tokenUsdFeedKey("USDCx"), "USDC/USD");
+    assert.equal(tokenUsdFeedKey("ALEX"), null);
+  });
+
+  it("converts base units through the oracle scale without inventing prices", () => {
+    assert.equal(formatUsdFromBase("10000000", 8, btc), "$7,000.00");
+    assert.equal(formatUsdFromDisplay("1.5", 6, stx), "$0.97");
+    assert.equal(formatUsdFromBase("2500000", 6, usdc), "$2.50");
+    assert.equal(formatUsdFromBase("10000000", 8, { ...btc, stale: true }), "$7,000.00 · stale");
+    assert.equal(formatUsdFromBase("10000000", 8, { ...btc, price: null }), null);
+    assert.equal(formatSpotUsd(btc), "$70,000.00");
+    assert.equal(usdHint(formatUsdFromBase("10000000", 8, btc)), "≈ $7,000.00");
+    assert.equal(usdHint(null), "USD unavailable");
+    assert.equal(usdHint(null, true), "USD loading…");
+    assert.equal(formatUsdFromDisplay("1.5.", 6, stx), null);
   });
 });
