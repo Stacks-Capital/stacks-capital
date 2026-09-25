@@ -194,6 +194,19 @@ export async function findSession(sql: Sql, token: string, now: Date): Promise<S
   return { kind: "session", appId: row.appId, sessionId: parts.id, address: row.address, network: row.network };
 }
 
+/** Sliding expiry so an active wallet session does not die on a hard wall-clock TTL. */
+export async function touchSession(
+  sql: Sql,
+  input: { sessionId: string; now: Date; ttlSeconds: number },
+): Promise<void> {
+  const expiresAt = new Date(input.now.getTime() + input.ttlSeconds * 1000);
+  await sql`
+    UPDATE user_sessions
+    SET expires_at = ${expiresAt}
+    WHERE id = ${input.sessionId} AND revoked_at IS NULL
+  `;
+}
+
 // Tenant filtering happens in the query, so another tenant's workflow looks exactly like a missing one.
 export async function findWorkflowForTenant(
   sql: Sql,
@@ -249,6 +262,7 @@ export type WorkflowSummary = {
   createdAt: Date;
   updatedAt: Date;
   transitionCount: number;
+  lastTxid: string | null;
 };
 
 /** A tenant's workflows, newest first. The same tenant filter as a single read, applied in the query. */
@@ -267,7 +281,10 @@ export async function listWorkflowsForTenant(
     SELECT w.id, w.network, w.state, w.next_action AS "nextAction", w.quote_id AS "quoteId", w.plan_id AS "planId",
            q.action,
            w.created_at AS "createdAt", w.updated_at AS "updatedAt",
-           (SELECT count(*)::int FROM state_transitions t WHERE t.workflow_id = w.id) AS "transitionCount"
+           (SELECT count(*)::int FROM state_transitions t WHERE t.workflow_id = w.id) AS "transitionCount",
+           (SELECT a.txid FROM transaction_attempts a
+             WHERE a.workflow_id = w.id AND a.txid IS NOT NULL
+             ORDER BY a.id DESC LIMIT 1) AS "lastTxid"
     FROM workflows w
     LEFT JOIN quotes q ON q.id = w.quote_id AND q.network = w.network
     WHERE w.app_id = ${input.appId}
