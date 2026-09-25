@@ -2,7 +2,14 @@ import type { CapitalClient, Session } from "@stacks-capital/client";
 import { capitalError, type CapitalError, type StacksNetwork } from "@stacks-capital/core";
 import { classifyWalletError, networkGuard, type WalletId } from "@stacks-capital/wallets";
 
-export type ConnectedWallet = { id: WalletId; address: string; network: StacksNetwork };
+export type ConnectedWallet = {
+  id: WalletId;
+  address: string;
+  network: StacksNetwork;
+  bitcoinAddress?: string;
+  bitcoinPublicKey?: string;
+  bitcoinWalletId?: WalletId;
+};
 
 /** Signs the exact text the API issued. The wallet, not this app, owns the key. */
 export type MessageSigner = (message: string) => Promise<{ signature: string; publicKey: string }>;
