@@ -19,6 +19,7 @@ export {
   findClientApp,
   findSession,
   findWorkflowForTenant,
+  touchSession,
   isAllowedOrigin,
   type KeyPrincipal,
   listWorkflowsForTenant,
