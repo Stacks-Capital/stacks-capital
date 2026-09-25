@@ -243,6 +243,12 @@ describe("Overview and Positions screens (I32)", () => {
       assert.equal(tab, "Overview");
     });
 
+    it("maps the former Deposit BTC tab name to Bridge", () => {
+      const storage = createMockStorage({ [STORAGE_TAB_KEY]: "Deposit BTC" });
+      assert.equal(getInitialTab("?tab=Deposit BTC", storage), "Bridge");
+      assert.equal(getInitialTab("", storage), "Bridge");
+    });
+
     it("persists and restores wallet session per network", () => {
       const sessionData = {
         address: "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR",
