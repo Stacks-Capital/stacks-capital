@@ -5,13 +5,18 @@ import {
   bitcoinNative,
   capitalError,
   formatAssetId,
+  integerField,
   parseQuantity,
+  principalField,
   sip10,
+  stringField,
   validatePlan,
+  type CanonicalActivity,
   type Plan,
   type Quote,
   type StacksNetwork,
 } from "@stacks-capital/core";
+import { effect } from "../events.ts";
 import type { AdapterReads } from "../reads.ts";
 import type { AdapterContext, Intent, ProtocolAdapter } from "../types.ts";
 import { withdrawalRecipientScript } from "./withdrawalLifecycle.ts";
@@ -91,12 +96,38 @@ export function createSbtcWithdrawAdapter(reads: AdapterReads): ProtocolAdapter 
     validatePlan(_ctx, plan, quote, signing) {
       return validatePlan(plan, quote, signing);
     },
-    decodeEvents(_ctx, raw) {
-      return raw
-        .filter(
-          (event) => event.payload.includes("accept-withdrawal-request") || event.payload.includes("bitcoin payout"),
-        )
-        .map((event) => ({ id: event.id, kind: "sbtc_payout", blockHash: event.blockHash, canonical: true }));
+    decodeEvents(ctx, events) {
+      const activities: CanonicalActivity[] = [];
+      for (const event of events) {
+        const topic = stringField(event, "topic");
+        if (topic !== "withdrawal-create" && topic !== "withdrawal-accept" && topic !== "withdrawal-reject") {
+          continue;
+        }
+
+        // One withdrawal spans three events and only the first carries the amount, so the request
+        // id is what ties them together.
+        const requestId = integerField(event, "request-id");
+        const owner = principalField(event, "sender");
+
+        activities.push({
+          id: event.id,
+          kind:
+            topic === "withdrawal-create"
+              ? "sbtc_withdrawal_requested"
+              : topic === "withdrawal-accept"
+                ? "sbtc_payout"
+                : "sbtc_withdrawal_rejected",
+          blockHash: event.blockHash,
+          canonical: true,
+          ...(owner === null ? {} : { owner }),
+          ...(requestId === null ? {} : { reference: requestId.toString(10) }),
+          // Only the request states an amount. Accept carries the fee and the Bitcoin payout, and
+          // reject carries neither, so both leave the amount to the request they point back to.
+          effects:
+            topic === "withdrawal-create" ? effect("out", token(ctx.network), integerField(event, "amount")) : [],
+        });
+      }
+      return activities;
     },
     reconcile(_ctx, expected, observed) {
       return {

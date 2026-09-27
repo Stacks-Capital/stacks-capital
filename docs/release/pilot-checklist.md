@@ -7,7 +7,7 @@
 | Owner / reviewer | IBK / kenzman |
 | Depends on | I18 end to end tests, I19 docs and runbooks |
 | Feeds | [K20 pilot and launch decision](launch-decision.md) |
-| Date | 2026-09-18, at commit `0e09f96`. Blockers rechecked 2026-09-22 at `fae05d5`: B1 still open, B2 narrowed, B7 added. Rechecked 2026-09-23 at `166d1c1`: B1 narrowed after PR #25, still open. |
+| Date | 2026-09-18, at commit `0e09f96`. Blockers rechecked 2026-09-22 at `fae05d5`: B1 still open, B2 narrowed, B7 added. Rechecked 2026-09-23 at `166d1c1`: B1 narrowed after PR #25. B1 then closed for the watched protocols; see the row below. |
 
 Deliverable from the task page: run pilot checklist, classify failures, verify rollback/restore evidence and document outstanding issues for go/no-go.
 
@@ -88,7 +88,7 @@ Defects use the page 03 severity scale: SEV-0 active loss vector, SEV-1 wrong pl
 
 | # | Issue | Kind | Effect on pilot | Source |
 |---|---|---|---|---|
-| B1 | Nothing reconciles a workflow to `COMPLETED`. Confirmation was fixed in PR #25: the worker now walks `SUBMITTED` to `CONFIRMING` to `STEP_CONFIRMED` from canonical chain evidence, and ingested activity is attributed to the workflow that broadcast it. The step after that is missing. Nothing calls `beginReconciling` or `completeFromReconciliation` outside the SDK surface and its tests, so every workflow stops at `STEP_CONFIRMED` | SEV-2 defect, narrowed | Every action still shows "waiting" after it confirms, because the screens map `STEP_CONFIRMED` and `RECONCILING` to the same confirming stage as `SUBMITTED`. No workflow reaches a success state, so users cannot finish without an engineer | `apps/worker/src/confirmations.ts`, `packages/core/src/workflow.ts`, `packages/ui/src/earn.ts`, `docs/engineering/ingestion.md` |
+| B1 | Workflows now complete. The worker reconciles a confirmed final step against the amounts its transaction emitted and moves `STEP_CONFIRMED` to `RECONCILING` to `COMPLETED`, judged against `minimumOutput`, the floor the post conditions already bound the transaction to. Landing under the quote but above that floor completes with a note; landing under the floor goes to `ACTION_REQUIRED`; an unread amount waits rather than failing. **Not yet reached for Bitflow or sBTC**: ingestion still polls the router and the two sBTC entry contracts, which emit no logs of their own, so no amounts are attributed for them. Their events come from the pool core and `sbtc-registry`, and watching those needs the emitting contracts pinned in the registry | Closed for Zest and Granite, open for Bitflow and sBTC | The earn journey reaches a success state. Swap and the BTC round trip still stop at "waiting" | `apps/worker/src/reconciliation.ts`, `apps/worker/src/ingest.ts`, `apps/worker/test/integration/workflow-completion.test.ts` |
 | B2 | No Bitcoin or Emily ingestion. The deposit and withdrawal screens shipped in I33, but nothing watches the L1 side | Gap | A deposit can be started and never observed, so the main BTC holder journey cannot finish | `docs/engineering/ingestion.md`, `apps/web/src/depositBtcScreen.tsx` |
 | B3 | Granite positions cannot be read from the registered contract, and the DIA USDC feed is unset | Gap | Borrow stays blocked (safely) | `docs/engineering/positions.md` finding 3, `docs/discovery/borrow-ux-safety.md` |
 | B4 | Terms, privacy, risk disclosures and support ownership | Gap | Cannot put users on mainnet funds without them | Page 03 release checklist |

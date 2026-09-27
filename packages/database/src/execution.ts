@@ -260,3 +260,41 @@ export async function findWorkflowStepKind(
   `;
   return row?.kind ?? null;
 }
+
+export type AwaitingReconciliation = {
+  workflowId: string;
+  network: NetworkName;
+  state: WorkflowState;
+  transitionCount: number;
+  owner: string | null;
+  /** Amounts as stored: `{asset, quantity}` with the quantity a base-10 integer string. */
+  expectedOutput: { asset: string; quantity: string }[];
+  minimumOutput: { asset: string; quantity: string } | null;
+};
+
+/**
+ * Workflows whose final step is confirmed on chain and now needs its effects checked.
+ *
+ * The quote travels with them because it carries the band the user signed for: the minimum output
+ * is the floor they accepted, and the expected output is only what was quoted.
+ */
+export async function listWorkflowsAwaitingReconciliation(
+  sql: Sql,
+  input: { network: NetworkName; limit: number },
+): Promise<AwaitingReconciliation[]> {
+  return sql<AwaitingReconciliation[]>`
+    SELECT w.id AS "workflowId",
+           w.network,
+           w.state,
+           (SELECT count(*)::int FROM state_transitions t WHERE t.workflow_id = w.id) AS "transitionCount",
+           w.owner_address AS owner,
+           q.expected_output AS "expectedOutput",
+           q.minimum_output AS "minimumOutput"
+    FROM workflows w
+    JOIN quotes q ON q.id = w.quote_id AND q.network = w.network
+    WHERE w.network = ${input.network}
+      AND w.state IN ('STEP_CONFIRMED', 'RECONCILING')
+    ORDER BY w.updated_at ASC
+    LIMIT ${input.limit}
+  `;
+}

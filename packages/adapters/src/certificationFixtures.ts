@@ -1,5 +1,14 @@
 import { REGISTRY_VERSION } from "@stacks-capital/config";
-import type { ClarityValue, RawEvent } from "@stacks-capital/core";
+import {
+  type ActivityEffect,
+  type AssetId,
+  type CanonicalActivity,
+  type ClarityValue,
+  type DecodedEvent,
+  parseAssetId,
+} from "@stacks-capital/core";
+import { CAPTURED_MAINNET_EVENTS, type CapturedEvent } from "./capturedEvents.ts";
+import { assetForPrincipal } from "./events.ts";
 import { createBitflowSwapAdapter } from "./bitflow/swap.ts";
 import { assertAdapterCertified, type AdapterCertificationFixture } from "./certification.ts";
 import { createGraniteCreditAdapter } from "./granite/credit.ts";
@@ -92,16 +101,96 @@ const reads: AdapterReads = {
   balances: { sbtc: "123", zsbtc: "77", usdcx: "456" },
 };
 
-function rawEvent(id: string, payload: string): RawEvent {
+function captured(protocol: string, action: string): CapturedEvent {
+  const found = CAPTURED_MAINNET_EVENTS.find((item) => item.protocol === protocol && item.action === action);
+  if (found === undefined) {
+    throw new Error(`No captured ${protocol} ${action} event. Run pnpm capture:events.`);
+  }
+  return found;
+}
+
+function capturedInteger(source: CapturedEvent, name: string): bigint {
+  const field = source.fields[name];
+  if (field?.kind !== "integer") {
+    throw new Error(`Captured ${source.protocol} ${source.action} has no integer field ${name}`);
+  }
+  return field.value;
+}
+
+function capturedPrincipal(source: CapturedEvent, name: string): string {
+  const field = source.fields[name];
+  if (field?.kind !== "principal") {
+    throw new Error(`Captured ${source.protocol} ${source.action} has no principal field ${name}`);
+  }
+  return field.value;
+}
+
+/**
+ * Where an expected effect's asset comes from. A fixed id pins a protocol that only ever moves one
+ * asset; `fromField` pins the rule instead, for a contract that routes many assets and whose
+ * captured example can change pool on the next refresh.
+ */
+type EffectSpec = {
+  direction: ActivityEffect["direction"];
+  asset: string | { fromField: string };
+  field: string;
+};
+
+/**
+ * Builds a certification case from a real captured mainnet log.
+ *
+ * The decoder is fed exactly what ingestion would hand it, and the expected activity names the
+ * field each amount must come from. Amounts move when the capture is refreshed; which field means
+ * what does not, and that mapping is what this pins.
+ */
+function eventCase(input: {
+  protocol: string;
+  action: string;
+  id: string;
+  kind: string;
+  ownerField?: string;
+  reference?: (source: CapturedEvent) => string;
+  effects: readonly EffectSpec[];
+}): { raw: DecodedEvent[]; expected: CanonicalActivity[] } {
+  const source = captured(input.protocol, input.action);
+  const owner = input.ownerField === undefined ? undefined : capturedPrincipal(source, input.ownerField);
+  const reference = input.reference?.(source);
   return {
-    id,
-    chain: "stacks",
-    network: "mainnet",
-    blockHash: BLOCK_HASH,
-    payload,
-    canonical: true,
-    observedAt: NOW,
-    source: "adapter-certification-fixture",
+    raw: [{ id: input.id, blockHash: BLOCK_HASH, contractId: source.contractId, fields: source.fields }],
+    expected: [
+      {
+        id: input.id,
+        kind: input.kind,
+        blockHash: BLOCK_HASH,
+        canonical: true,
+        ...(owner === undefined ? {} : { owner }),
+        ...(reference === undefined ? {} : { reference }),
+        effects: input.effects.map((spec) => ({
+          direction: spec.direction,
+          asset:
+            typeof spec.asset === "string"
+              ? (parseAssetId(spec.asset) as AssetId)
+              : expectedAsset(source, spec.asset.fromField),
+          quantity: capturedInteger(source, spec.field),
+        })),
+      },
+    ],
+  };
+}
+
+/** Resolves the asset a captured event named in one of its principal fields. */
+function expectedAsset(source: CapturedEvent, field: string): AssetId {
+  const asset = assetForPrincipal("mainnet", capturedPrincipal(source, field));
+  if (asset === null) {
+    throw new Error(`Captured ${source.protocol} ${source.action} names an unpinned asset in ${field}`);
+  }
+  return asset;
+}
+
+function merge(...cases: { raw: DecodedEvent[]; expected: CanonicalActivity[] }[]) {
+  return {
+    raw: cases.flatMap((item) => item.raw),
+    expected: cases.flatMap((item) => item.expected),
   };
 }
 
@@ -174,10 +263,20 @@ export const ADAPTER_CERTIFICATION_FIXTURES: readonly AdapterCertificationFixtur
         },
       ],
     },
-    events: {
-      raw: [rawEvent("deposit-1", "complete-deposit sbtc mint")],
-      expected: [{ id: "deposit-1", kind: "sbtc_mint", blockHash: BLOCK_HASH, canonical: true }],
-    },
+    events: eventCase({
+      protocol: "sbtc",
+      action: "completed-deposit",
+      id: "deposit-1",
+      kind: "sbtc_mint",
+      // The signers broadcast the mint, so it names no principal. The Bitcoin output it settles is
+      // the only way back to the depositor.
+      reference: (source) => {
+        const txid = source.fields["bitcoin-txid"];
+        if (txid?.kind !== "buffer") throw new Error("captured mint has no bitcoin-txid");
+        return `${txid.hex}:${capturedInteger(source, "output-index")}`;
+      },
+      effects: [{ direction: "in", asset: SBTC, field: "amount" }],
+    }),
     reconciliation: { expected: "9800", observed: "9800", mismatchedObserved: "9799" },
   },
   {
@@ -256,10 +355,27 @@ export const ADAPTER_CERTIFICATION_FIXTURES: readonly AdapterCertificationFixtur
         },
       ],
     },
-    events: {
-      raw: [rawEvent("withdraw-1", "accept-withdrawal-request bitcoin payout")],
-      expected: [{ id: "withdraw-1", kind: "sbtc_payout", blockHash: BLOCK_HASH, canonical: true }],
-    },
+    // A withdrawal is two events: the request carries the amount, the acceptance carries the
+    // Bitcoin payout and no amount at all. Both are certified so the pairing stays visible.
+    events: merge(
+      eventCase({
+        protocol: "sbtc",
+        action: "withdrawal-create",
+        id: "withdraw-1",
+        kind: "sbtc_withdrawal_requested",
+        ownerField: "sender",
+        reference: (source) => capturedInteger(source, "request-id").toString(10),
+        effects: [{ direction: "out", asset: SBTC, field: "amount" }],
+      }),
+      eventCase({
+        protocol: "sbtc",
+        action: "withdrawal-accept",
+        id: "withdraw-2",
+        kind: "sbtc_payout",
+        reference: (source) => capturedInteger(source, "request-id").toString(10),
+        effects: [],
+      }),
+    ),
     reconciliation: { expected: "10000", observed: "10000", mismatchedObserved: "9999" },
   },
   {
@@ -316,10 +432,17 @@ export const ADAPTER_CERTIFICATION_FIXTURES: readonly AdapterCertificationFixtur
         },
       ],
     },
-    events: {
-      raw: [rawEvent("zest-1", "deposit")],
-      expected: [{ id: "zest-1", kind: "zest_deposit", blockHash: BLOCK_HASH, canonical: true }],
-    },
+    events: eventCase({
+      protocol: "zest",
+      action: "deposit",
+      id: "zest-1",
+      kind: "zest_deposit",
+      ownerField: "recipient",
+      effects: [
+        { direction: "out", asset: SBTC, field: "amount" },
+        { direction: "in", asset: ZSBTC, field: "shares-minted" },
+      ],
+    }),
     reconciliation: { expected: "66", observed: "66", mismatchedObserved: "65" },
   },
   {
@@ -376,10 +499,17 @@ export const ADAPTER_CERTIFICATION_FIXTURES: readonly AdapterCertificationFixtur
         },
       ],
     },
-    events: {
-      raw: [rawEvent("zest-2", "redeem")],
-      expected: [{ id: "zest-2", kind: "zest_redeem", blockHash: BLOCK_HASH, canonical: true }],
-    },
+    events: eventCase({
+      protocol: "zest",
+      action: "redeem",
+      id: "zest-2",
+      kind: "zest_redeem",
+      ownerField: "recipient",
+      effects: [
+        { direction: "in", asset: SBTC, field: "amount-received" },
+        { direction: "out", asset: ZSBTC, field: "shares-burned" },
+      ],
+    }),
     reconciliation: { expected: "99", observed: "99", mismatchedObserved: "98" },
   },
   {
@@ -450,10 +580,17 @@ export const ADAPTER_CERTIFICATION_FIXTURES: readonly AdapterCertificationFixtur
         },
       ],
     },
-    events: {
-      raw: [rawEvent("granite-1", "borrow")],
-      expected: [{ id: "granite-1", kind: "granite_borrow", blockHash: BLOCK_HASH, canonical: true }],
-    },
+    // The captured borrow is for usdh, which this registry does not pin. The activity and the
+    // account are still recorded; the amount is left off, because an unrecognised asset is
+    // unknown and must never be reported as a movement of some other asset.
+    events: eventCase({
+      protocol: "granite",
+      action: "borrow",
+      id: "granite-1",
+      kind: "granite_borrow",
+      ownerField: "account",
+      effects: [],
+    }),
     reconciliation: { expected: "50000000000", observed: "50000000000", mismatchedObserved: "49999999999" },
   },
   {
@@ -517,10 +654,21 @@ export const ADAPTER_CERTIFICATION_FIXTURES: readonly AdapterCertificationFixtur
         },
       ],
     },
-    events: {
-      raw: [rawEvent("bitflow-1", "swap-x-for-y-simple-range-multi")],
-      expected: [{ id: "bitflow-1", kind: "bitflow_swap", blockHash: BLOCK_HASH, canonical: true }],
-    },
+    // The router serves every pool, so which assets a captured swap moved depends on whichever
+    // trade was most recent. What is pinned is the rule: on an x-for-y swap the caller parts with
+    // x-token and receives y-token, and the received side is read from the delta rather than from
+    // the amount requested.
+    events: eventCase({
+      protocol: "bitflow",
+      action: "swap-x-for-y",
+      id: "bitflow-1",
+      kind: "bitflow_swap",
+      ownerField: "caller",
+      effects: [
+        { direction: "out", asset: { fromField: "x-token" }, field: "x-amount" },
+        { direction: "in", asset: { fromField: "y-token" }, field: "dy" },
+      ],
+    }),
     reconciliation: { expected: "99002500000", observed: "99002500000", mismatchedObserved: "99002499999" },
   },
 ] as const;

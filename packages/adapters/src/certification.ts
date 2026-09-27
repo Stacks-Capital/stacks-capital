@@ -7,7 +7,7 @@ import {
   type Plan,
   type PostCondition,
   type Quote,
-  type RawEvent,
+  type DecodedEvent,
 } from "@stacks-capital/core";
 import type { AdapterContext, Position, ProtocolAdapter } from "./types.ts";
 
@@ -86,7 +86,7 @@ export type AdapterCertificationFixture = {
   quote: QuoteExpectation;
   plan: PlanExpectation;
   events: {
-    raw: readonly RawEvent[];
+    raw: readonly DecodedEvent[];
     expected: readonly CanonicalActivity[];
   };
   reconciliation: {

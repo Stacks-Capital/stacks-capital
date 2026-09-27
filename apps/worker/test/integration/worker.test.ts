@@ -210,10 +210,31 @@ describe("worker", { skip: DATABASE_URL === "" ? "DATABASE_URL is not set" : fal
     ]);
     const first = await run(1);
     assert.deepEqual([first.events, first.activities], [1, 1]);
-    const [activity] = await sql<{ kind: string; canonical: boolean }[]>`
-      SELECT kind, canonical FROM canonical_activities WHERE id = 'act_0xtx1:4'
+    // The Zest adapter claims the log and names it, so the kind is the adapter's, not a generic
+    // `protocol.action` built from whatever string happened to be in the payload.
+    const [activity] = await sql<{ kind: string; canonical: boolean; owner: string | null }[]>`
+      SELECT kind, canonical, owner FROM canonical_activities WHERE id = 'act_0xtx1:4'
     `;
-    assert.deepEqual(activity, { kind: "zest.deposit", canonical: true });
+    assert.deepEqual(activity, {
+      kind: "zest_deposit",
+      canonical: true,
+      owner: "SP1TPYSSG52FKCDHHN8Y76ABMA12P069BZBFAYEAF",
+    });
+
+    // The amounts the log recorded are stored with it. Without these there is nothing to reconcile
+    // a workflow against, which is what left every action on "waiting" (pilot blocker B1).
+    const effects = await sql<{ direction: string; assetId: string; quantity: string }[]>`
+      SELECT direction, asset_id AS "assetId", quantity::text AS quantity
+      FROM activity_effects WHERE activity_id = 'act_0xtx1:4' ORDER BY ordinal
+    `;
+    assert.equal(effects.length, 2, "a deposit pays sBTC in and mints shares");
+    assert.deepEqual(
+      effects.map((row) => [row.direction, row.quantity]),
+      [
+        ["out", "6498"],
+        ["in", "6494"],
+      ],
+    );
 
     const before = await count("raw_events");
     const second = await run(2);
@@ -256,9 +277,12 @@ describe("worker", { skip: DATABASE_URL === "" ? "DATABASE_URL is not set" : fal
     const rows = await sql<
       { marketId: string; kind: string; assetId: string; quantity: string | null; warnings: string[] }[]
     >`
-      SELECT market_id AS "marketId", kind, asset_id AS "assetId", quantity::text AS quantity, warnings
-      FROM position_snapshots WHERE source = 'hiro-read' ORDER BY market_id
+      SELECT DISTINCT ON (market_id)
+             market_id AS "marketId", kind, asset_id AS "assetId", quantity::text AS quantity, warnings
+      FROM position_snapshots WHERE source = 'hiro-read' ORDER BY market_id, id DESC
     `;
+    // The newest row per market: an earlier test deliberately writes unknown positions from a
+    // failed read, and picking any row rather than the latest made this depend on insert order.
     const vault = rows.find((row) => row.marketId === "zest.sbtc.vault");
     // 1.0 share is worth 1.00054938 sBTC, and the position is stored in sBTC, not in shares.
     assert.equal(vault?.quantity, "100054938");

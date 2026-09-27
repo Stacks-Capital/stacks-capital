@@ -13,8 +13,15 @@ import {
   recordBlock,
   type Sql,
 } from "@stacks-capital/database";
-import { type Hiro, decodeTuple, tupleString } from "./hiro.ts";
+import type { Hiro } from "./hiro.ts";
+import { decodeEvent } from "./clarity.ts";
 import { CALCULATION_VERSION } from "./markets.ts";
+import { eventDecodingAdapters, type AdapterContext } from "@stacks-capital/adapters";
+import { REGISTRY_VERSION } from "@stacks-capital/config";
+import { formatAssetId, stringField } from "@stacks-capital/core";
+
+/** Built once: decoding reads nothing, so one set serves every tick. */
+const decoders = eventDecodingAdapters();
 
 export const BLOCK_SOURCE = "hiro-blocks";
 export const EVENT_SOURCE = "hiro-events";
@@ -152,18 +159,42 @@ export async function ingestEvents(
       });
       result.events += 1;
 
-      const action = tupleString(decodeTuple(event.payloadHex), "action") ?? "unknown";
       // An activity that cannot be traced to the workflow that caused it is why nothing ever moved
       // past SUBMITTED (pilot blocker B1). The transaction id is the link, and it is already here.
       const origin = await findWorkflowByTxid(deps.sql, { network: deps.network, txid: event.txId });
+
+      // The worker decodes the payload because it owns the Clarity library; the adapter that
+      // recognises the event says what the fields mean. An event no adapter claims still records a
+      // generic activity, so nothing is lost because a decoder has not been written yet.
+      const decoded = decodeEvent({
+        id,
+        blockHash: block.hash,
+        contractId: event.contractId,
+        hex: event.payloadHex,
+      });
+      const context: AdapterContext = {
+        network: deps.network,
+        now: deps.at,
+        registryVersion: REGISTRY_VERSION,
+      };
+      const claimed = decoders.flatMap((adapter) => adapter.decodeEvents(context, [decoded]))[0];
+      const fallbackAction = stringField(decoded, "action") ?? stringField(decoded, "topic") ?? "unknown";
+
       const recorded = await recordActivity(deps.sql, {
         id: `act_${id}`,
         rawEventId: id,
-        kind: `${target.protocol}.${action}`,
+        kind: claimed?.kind ?? `${target.protocol}.${fallbackAction}`,
         chain: CHAIN,
         network: deps.network,
         blockHash: block.hash,
         workflowId: origin?.workflowId ?? null,
+        owner: claimed?.owner ?? null,
+        reference: claimed?.reference ?? null,
+        effects: (claimed?.effects ?? []).map((item) => ({
+          direction: item.direction,
+          assetId: formatAssetId(item.asset),
+          quantity: item.quantity.toString(10),
+        })),
         adapterVersion: target.adapterVersion,
         calculationVersion: CALCULATION_VERSION,
       });

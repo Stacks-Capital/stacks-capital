@@ -290,7 +290,7 @@ export function markStepConfirmed(workflow: Workflow, evidence: string): Workflo
   });
 }
 
-export function beginReconciling(workflow: Workflow, evidence: string): Workflow {
+export function beginReconciling(workflow: Workflow, evidence: string, actor = "adapter"): Workflow {
   if (
     workflow.state !== "STEP_CONFIRMED" &&
     workflow.state !== "REORGED" &&
@@ -301,16 +301,26 @@ export function beginReconciling(workflow: Workflow, evidence: string): Workflow
   }
   return transition(workflow, "RECONCILING", {
     reason: "Begin canonical position reconciliation",
-    actor: "adapter",
+    actor,
     evidence,
   });
 }
 
-/** Completion is allowed only after a matched canonical reconciliation. */
-export function completeFromReconciliation(workflow: Workflow, result: ReconciliationResult): Workflow {
+/**
+ * Completion is allowed only after a matched canonical reconciliation.
+ *
+ * `actor` names what decided. It stays the adapter by default, because the adapter's own
+ * reconcile call is what produced the verdict, and becomes the worker when the worker judged the
+ * evidence itself.
+ */
+export function completeFromReconciliation(
+  workflow: Workflow,
+  result: ReconciliationResult,
+  actor = "adapter",
+): Workflow {
   let flow = workflow;
   if (flow.state === "STEP_CONFIRMED") {
-    flow = beginReconciling(flow, result.evidence);
+    flow = beginReconciling(flow, result.evidence, actor);
   }
   if (flow.state !== "RECONCILING") {
     throw capitalError(
@@ -321,13 +331,13 @@ export function completeFromReconciliation(workflow: Workflow, result: Reconcili
   if (!result.matched) {
     return transition(flow, "ACTION_REQUIRED", {
       reason: "Canonical position did not match the expected effect",
-      actor: "adapter",
+      actor,
       evidence: `mismatch:${result.evidence}`,
     });
   }
   return transition(flow, "COMPLETED", {
     reason: "Canonical position matched",
-    actor: "adapter",
+    actor,
     evidence: result.evidence,
   });
 }

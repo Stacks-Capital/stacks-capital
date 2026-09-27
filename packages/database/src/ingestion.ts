@@ -17,6 +17,13 @@ export type EventRow = { id: string; blockHash: string; payload: string; source:
 
 export type CheckpointRow = { height: number; hash: string };
 
+export type ActivityEffectRow = {
+  direction: "in" | "out";
+  /** Formatted asset id, as `formatAssetId` renders it. */
+  assetId: string;
+  quantity: string;
+};
+
 export type ActivityRow = {
   id: string;
   rawEventId: string;
@@ -25,6 +32,10 @@ export type ActivityRow = {
   network: NetworkName;
   blockHash: string;
   workflowId: string | null;
+  owner?: string | null;
+  reference?: string | null;
+  /** Empty means the adapter read the event but could not attribute amounts to it. */
+  effects?: readonly ActivityEffectRow[];
   adapterVersion: string;
   calculationVersion: string;
 };
@@ -217,15 +228,48 @@ export async function markReorg(
   });
 }
 
+/**
+ * Stores an activity and the amounts it recorded, both or neither.
+ *
+ * The effects are written in the same transaction as the activity, so an activity can never be
+ * read back as having moved nothing when it actually moved something the writer had not got to.
+ */
 export async function recordActivity(sql: Sql, activity: ActivityRow): Promise<boolean> {
-  const result = await sql`
-    INSERT INTO canonical_activities (id, raw_event_id, kind, chain, network, block_hash, workflow_id,
-                                      adapter_version, calculation_version)
-    VALUES (${activity.id}, ${activity.rawEventId}, ${activity.kind}, ${activity.chain}, ${activity.network},
-            ${activity.blockHash}, ${activity.workflowId}, ${activity.adapterVersion}, ${activity.calculationVersion})
-    ON CONFLICT (raw_event_id, kind) DO NOTHING
+  return sql.begin(async (tx) => {
+    const result = await tx`
+      INSERT INTO canonical_activities (id, raw_event_id, kind, chain, network, block_hash, workflow_id,
+                                        owner, reference, adapter_version, calculation_version)
+      VALUES (${activity.id}, ${activity.rawEventId}, ${activity.kind}, ${activity.chain}, ${activity.network},
+              ${activity.blockHash}, ${activity.workflowId}, ${activity.owner ?? null},
+              ${activity.reference ?? null}, ${activity.adapterVersion}, ${activity.calculationVersion})
+      ON CONFLICT (raw_event_id, kind) DO NOTHING
+    `;
+    if (result.count === 0) return false;
+
+    for (const [ordinal, effect] of (activity.effects ?? []).entries()) {
+      await tx`
+        INSERT INTO activity_effects (activity_id, ordinal, direction, asset_id, quantity)
+        VALUES (${activity.id}, ${ordinal}, ${effect.direction}, ${effect.assetId}, ${effect.quantity})
+      `;
+    }
+    return true;
+  });
+}
+
+export type StoredEffect = ActivityEffectRow & { kind: string; owner: string | null };
+
+/** Everything a workflow's own transactions recorded moving, newest activity last. */
+export async function listWorkflowEffects(
+  sql: Sql,
+  input: { network: NetworkName; workflowId: string },
+): Promise<StoredEffect[]> {
+  return sql<StoredEffect[]>`
+    SELECT a.kind, a.owner, e.direction, e.asset_id AS "assetId", e.quantity::text AS quantity
+    FROM canonical_activities a
+    JOIN activity_effects e ON e.activity_id = a.id
+    WHERE a.network = ${input.network} AND a.workflow_id = ${input.workflowId} AND a.canonical
+    ORDER BY a.id, e.ordinal
   `;
-  return result.count > 0;
 }
 
 export async function insertMarketSnapshot(sql: Sql, row: MarketSnapshotRow): Promise<boolean> {

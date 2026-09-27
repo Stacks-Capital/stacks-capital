@@ -5,13 +5,17 @@ import {
   assertPositive,
   capitalError,
   formatAssetId,
+  integerField,
   parseQuantity,
+  principalField,
   projectedHealth,
   settleRepayAmount,
   sip10,
+  stringField,
   validatePlan,
   type Action,
   type AssetRiskSide,
+  type CanonicalActivity,
   type ClarityValue,
   type Health,
   type OracleQuote,
@@ -20,6 +24,7 @@ import {
   type RiskParams,
   type StacksNetwork,
 } from "@stacks-capital/core";
+import { assetForPrincipal, effect } from "../events.ts";
 import type { AdapterReads, OracleSnapshot } from "../reads.ts";
 import type { AdapterContext, Intent, Market, ProtocolAdapter } from "../types.ts";
 
@@ -234,21 +239,36 @@ export function createGraniteCreditAdapter(reads: AdapterReads): ProtocolAdapter
     validatePlan(_ctx, plan, quote, signing) {
       return validatePlan(plan, quote, signing);
     },
-    decodeEvents(_ctx, raw) {
-      return raw
-        .filter((event) => /collateral-add|collateral-remove|borrow|repay/.test(event.payload))
-        .map((event) => ({
+    decodeEvents(ctx, events) {
+      /** Which way the asset moved for the account, and where its amount is recorded. */
+      const ACTIONS: Readonly<Record<string, { kind: string; direction: "in" | "out"; field: string }>> = {
+        "collateral-add": { kind: "granite_collateral_add", direction: "out", field: "amount" },
+        "collateral-remove": { kind: "granite_collateral_remove", direction: "in", field: "amount" },
+        borrow: { kind: "granite_borrow", direction: "in", field: "amount" },
+        repay: { kind: "granite_repay", direction: "out", field: "amount-repaid" },
+      };
+
+      const activities: CanonicalActivity[] = [];
+      for (const event of events) {
+        const action = stringField(event, "action");
+        const known = action === null ? undefined : ACTIONS[action];
+        if (known === undefined) continue;
+
+        const owner = principalField(event, "account");
+        // The market lends and takes collateral in several assets, so the asset is whichever
+        // principal the event names. One outside the pinned registry leaves the amount off.
+        const asset = assetForPrincipal(ctx.network, principalField(event, "asset-addr"));
+
+        activities.push({
           id: event.id,
-          kind: event.payload.includes("repay")
-            ? "granite_repay"
-            : event.payload.includes("borrow")
-              ? "granite_borrow"
-              : event.payload.includes("collateral-remove")
-                ? "granite_collateral_remove"
-                : "granite_collateral_add",
+          kind: known.kind,
           blockHash: event.blockHash,
           canonical: true,
-        }));
+          ...(owner === null ? {} : { owner }),
+          effects: effect(known.direction, asset, integerField(event, known.field)),
+        });
+      }
+      return activities;
     },
     reconcile(_ctx, expected, observed) {
       return {

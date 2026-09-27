@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@stacks-capital/adapters": "workspace:*",
     "@stacks-capital/config": "workspace:*",
     "@stacks-capital/core": "workspace:*",
     "@stacks-capital/database": "workspace:*",

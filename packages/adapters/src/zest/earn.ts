@@ -4,14 +4,19 @@ import {
   assertPositive,
   capitalError,
   formatAssetId,
+  integerField,
   parseQuantity,
+  principalField,
   sip10,
+  stringField,
   validatePlan,
   type Action,
+  type CanonicalActivity,
   type Plan,
   type Quote,
   type StacksNetwork,
 } from "@stacks-capital/core";
+import { effect } from "../events.ts";
 import type { AdapterReads } from "../reads.ts";
 import type { AdapterContext, Intent, Market, ProtocolAdapter } from "../types.ts";
 import { assetsForShares as claimForShares, sharesForAssets as previewShares, zestSupplyApr } from "./earnLifecycle.ts";
@@ -118,15 +123,38 @@ export function createZestEarnAdapter(reads: AdapterReads): ProtocolAdapter {
     validatePlan(_ctx, plan, quote, signing) {
       return validatePlan(plan, quote, signing);
     },
-    decodeEvents(_ctx, raw) {
-      return raw
-        .filter((event) => event.payload.includes("deposit") || event.payload.includes("redeem"))
-        .map((event) => ({
+    decodeEvents(ctx, events) {
+      const activities: CanonicalActivity[] = [];
+      for (const event of events) {
+        const action = stringField(event, "action");
+        // The vault also logs `system-borrow` and `system-repay`, which are the credit market
+        // drawing on the vault rather than anything a user did. They are not activity.
+        if (action !== "deposit" && action !== "redeem") continue;
+
+        const underlying = sbtc(ctx.network);
+        const shares = zsbtc(ctx.network);
+        const owner = principalField(event, "recipient");
+        const effects =
+          action === "deposit"
+            ? [
+                ...effect("out", underlying, integerField(event, "amount")),
+                ...effect("in", shares, integerField(event, "shares-minted")),
+              ]
+            : [
+                ...effect("in", underlying, integerField(event, "amount-received")),
+                ...effect("out", shares, integerField(event, "shares-burned")),
+              ];
+
+        activities.push({
           id: event.id,
-          kind: event.payload.includes("redeem") ? "zest_redeem" : "zest_deposit",
+          kind: action === "deposit" ? "zest_deposit" : "zest_redeem",
           blockHash: event.blockHash,
           canonical: true,
-        }));
+          ...(owner === null ? {} : { owner }),
+          effects,
+        });
+      }
+      return activities;
     },
     reconcile(_ctx, expected, observed) {
       return {

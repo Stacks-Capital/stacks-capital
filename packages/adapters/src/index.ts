@@ -145,3 +145,6 @@ export type {
 } from "./bitflow/swapLifecycle.ts";
 export { evaluateStaking, stakingAvailability, STAKING_ACTIONS } from "./staking/lifecycle.ts";
 export type { StakingAction, StakingAvailability, StakingLifecycle } from "./staking/lifecycle.ts";
+
+export { eventDecodingAdapters } from "./eventDecoders.ts";
+export { assetForPrincipal } from "./events.ts";

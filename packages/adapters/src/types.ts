@@ -1,6 +1,7 @@
 import type {
   Action,
   CanonicalActivity,
+  DecodedEvent,
   DataPoint,
   Intent,
   Plan,
@@ -90,10 +91,14 @@ export type ProtocolAdapter = {
   quote(ctx: AdapterContext, intent: Intent): Quote;
   buildPlan(ctx: AdapterContext, quote: Quote, intent: Intent): Plan;
   validatePlan(ctx: AdapterContext, plan: Plan, quote: Quote, signing: SigningContext): PlanValidation;
-  decodeEvents(
-    ctx: AdapterContext,
-    raw: readonly { id: string; payload: string; blockHash: string }[],
-  ): CanonicalActivity[];
+  /**
+   * Turns decoded contract logs into canonical activity, with the amounts that moved.
+   *
+   * The worker decodes the Clarity payload, because it owns the chain library; the adapter says
+   * what the fields mean, because it owns the protocol. An event this adapter does not recognise
+   * is dropped rather than guessed at.
+   */
+  decodeEvents(ctx: AdapterContext, events: readonly DecodedEvent[]): CanonicalActivity[];
   reconcile(ctx: AdapterContext, expected: string, observed: string): Reconciliation;
   explainRisk(ctx: AdapterContext, marketId: string): RiskExplanation;
 };

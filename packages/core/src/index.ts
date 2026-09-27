@@ -118,13 +118,23 @@ export {
 } from "./borrowSafety.ts";
 
 export type {
+  ActivityEffect,
   CanonicalActivity,
   ChainBlock,
+  DecodedEvent,
+  DecodedField,
   IngestionCheckpoint,
   IngestionState,
   RawEvent,
 } from "./ingestion.ts";
-export { applyBlock, applyReorg, emptyIngestion } from "./ingestion.ts";
+export {
+  applyBlock,
+  applyReorg,
+  emptyIngestion,
+  integerField,
+  principalField,
+  stringField,
+} from "./ingestion.ts";
 
 export type { SigningContext, WalletOutcome } from "./signing.ts";
 export { assertReadyToSign, assertValidPlan, validatePlan, walletOutcome } from "./signing.ts";

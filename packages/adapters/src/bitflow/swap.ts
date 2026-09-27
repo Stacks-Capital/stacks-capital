@@ -4,15 +4,20 @@ import {
   assertPositive,
   capitalError,
   formatAssetId,
+  integerField,
   minOutFromSpot,
   parseQuantity,
+  principalField,
   sip10,
+  stringField,
   validatePlan,
+  type CanonicalActivity,
   type ClarityValue,
   type Plan,
   type Quote,
   type StacksNetwork,
 } from "@stacks-capital/core";
+import { amountField, assetForPrincipal, effect } from "../events.ts";
 import type { AdapterReads } from "../reads.ts";
 import type { AdapterContext, Intent, Market, ProtocolAdapter } from "../types.ts";
 
@@ -155,10 +160,33 @@ export function createBitflowSwapAdapter(reads: AdapterReads): ProtocolAdapter {
     validatePlan(_ctx, plan, quote, signing) {
       return validatePlan(plan, quote, signing);
     },
-    decodeEvents(_ctx, raw) {
-      return raw
-        .filter((event) => event.payload.includes("swap-") && event.payload.includes("simple-range-multi"))
-        .map((event) => ({ id: event.id, kind: "bitflow_swap", blockHash: event.blockHash, canonical: true }));
+    decodeEvents(ctx, events) {
+      const activities: CanonicalActivity[] = [];
+      for (const event of events) {
+        const action = stringField(event, "action");
+        if (action !== "swap-x-for-y" && action !== "swap-y-for-x") continue;
+
+        const forward = action === "swap-x-for-y";
+        const paid = assetForPrincipal(ctx.network, principalField(event, forward ? "x-token" : "y-token"));
+        const received = assetForPrincipal(ctx.network, principalField(event, forward ? "y-token" : "x-token"));
+
+        // `x-amount` and `y-amount` are what the caller put in; `dx` and `dy` are what reached the
+        // pool and came back out. The received side is the one a quote's min-out is judged against,
+        // so it is read from the delta rather than from the request.
+        const spent = amountField(event, forward ? "x-amount" : "y-amount", forward ? "dx" : "dy");
+        const gained = integerField(event, forward ? "dy" : "dx");
+        const owner = principalField(event, "caller");
+
+        activities.push({
+          id: event.id,
+          kind: "bitflow_swap",
+          blockHash: event.blockHash,
+          canonical: true,
+          ...(owner === null ? {} : { owner }),
+          effects: [...effect("out", paid, spent), ...effect("in", received, gained)],
+        });
+      }
+      return activities;
     },
     reconcile(_ctx, expected, observed) {
       return {

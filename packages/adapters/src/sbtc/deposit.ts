@@ -5,13 +5,17 @@ import {
   bitcoinNative,
   capitalError,
   formatAssetId,
+  integerField,
   parseQuantity,
   sip10,
+  stringField,
   validatePlan,
+  type CanonicalActivity,
   type Quote,
   type Plan,
   type StacksNetwork,
 } from "@stacks-capital/core";
+import { effect } from "../events.ts";
 import type { AdapterContext, Intent, Market, ProtocolAdapter } from "../types.ts";
 import type { AdapterReads } from "../reads.ts";
 
@@ -89,10 +93,30 @@ export function createSbtcDepositAdapter(reads: AdapterReads): ProtocolAdapter {
     validatePlan(_ctx, plan, quote, signing) {
       return validatePlan(plan, quote, signing);
     },
-    decodeEvents(_ctx, raw) {
-      return raw
-        .filter((event) => event.payload.includes("complete-deposit") || event.payload.includes("sbtc mint"))
-        .map((event) => ({ id: event.id, kind: "sbtc_mint", blockHash: event.blockHash, canonical: true }));
+    decodeEvents(ctx, events) {
+      const activities: CanonicalActivity[] = [];
+      for (const event of events) {
+        // The registry logs a `topic` rather than an `action`, and it is the registry that logs it,
+        // not the deposit contract the signers call.
+        if (stringField(event, "topic") !== "completed-deposit") continue;
+
+        // The mint names no principal: the signers broadcast it, not the depositor. The Bitcoin
+        // transaction it settles is the only link back to whoever made the deposit.
+        const bitcoinTxid = event.fields["bitcoin-txid"];
+        const outputIndex = integerField(event, "output-index");
+        const reference =
+          bitcoinTxid?.kind === "buffer" && outputIndex !== null ? `${bitcoinTxid.hex}:${outputIndex}` : null;
+
+        activities.push({
+          id: event.id,
+          kind: "sbtc_mint",
+          blockHash: event.blockHash,
+          canonical: true,
+          ...(reference === null ? {} : { reference }),
+          effects: effect("in", token(ctx.network), integerField(event, "amount")),
+        });
+      }
+      return activities;
     },
     reconcile(_ctx, expected, observed) {
       return {
