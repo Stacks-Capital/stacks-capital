@@ -416,68 +416,66 @@ export function WorkflowDrawer({
             <p className="muted">No recent workflows in this session.</p>
           ) : (
             <>
-            <p className="muted drawer-select-hint">
-              Click a transaction to see its stages and time remaining.
-            </p>
-            <ul className="drawer-workflow-list">
-              {workflows.map((wf) => {
-                const arrival = describeWorkflowArrival({
-                  action: wf.action,
-                  state: wf.state,
-                  createdAt: wf.createdAt,
-                  nowMs,
-                });
-                const isSelected = wf.id === selectedId;
-                return (
-                  <li key={wf.id} className="drawer-workflow-item">
-                    <button
-                      type="button"
-                      className={`drawer-workflow-card phase-${arrival.phase}${isSelected ? " selected" : ""}`}
-                      aria-pressed={isSelected}
-                      aria-expanded={isSelected}
-                      onClick={() => setSelectedId(isSelected ? null : wf.id)}
-                    >
-                      <div className="wf-card-header">
-                        <strong>{workflowActionTitle(workflowArrivalKind(wf.action))}</strong>
-                        <span className="badge badge-status">{wf.state}</span>
-                      </div>
-                      {wf.action ? <p className="wf-action-code">{wf.action}</p> : null}
-                      <p className="wf-card-remaining">
-                        Time left: <strong>{arrival.remaining}</strong>
-                      </p>
-                      <p className="wf-card-stage">{arrival.headline}</p>
-                      <p className="monospace wf-id">{wf.id}</p>
-                      {wf.txId ? (
-                        <p className="wf-txid">
-                          Tx: <span className="monospace">{truncateAddress(wf.txId, 10, 8)}</span>
-                        </p>
-                      ) : null}
-                      <small className="muted">{wf.updatedAt}</small>
-                    </button>
-                    {canCancelUnsignedWorkflow(wf.state) && onCancelWorkflow ? (
+              <p className="muted drawer-select-hint">Click a transaction to see its stages and time remaining.</p>
+              <ul className="drawer-workflow-list">
+                {workflows.map((wf) => {
+                  const arrival = describeWorkflowArrival({
+                    action: wf.action,
+                    state: wf.state,
+                    createdAt: wf.createdAt,
+                    nowMs,
+                  });
+                  const isSelected = wf.id === selectedId;
+                  return (
+                    <li key={wf.id} className="drawer-workflow-item">
                       <button
                         type="button"
-                        className="button-secondary wf-cancel-btn"
-                        disabled={cancellingId === wf.id}
-                        onClick={() => onCancelWorkflow(wf.id)}
+                        className={`drawer-workflow-card phase-${arrival.phase}${isSelected ? " selected" : ""}`}
+                        aria-pressed={isSelected}
+                        aria-expanded={isSelected}
+                        onClick={() => setSelectedId(isSelected ? null : wf.id)}
                       >
-                        {cancellingId === wf.id ? "Cancelling…" : "Cancel unsigned"}
+                        <div className="wf-card-header">
+                          <strong>{workflowActionTitle(workflowArrivalKind(wf.action))}</strong>
+                          <span className="badge badge-status">{wf.state}</span>
+                        </div>
+                        {wf.action ? <p className="wf-action-code">{wf.action}</p> : null}
+                        <p className="wf-card-remaining">
+                          Time left: <strong>{arrival.remaining}</strong>
+                        </p>
+                        <p className="wf-card-stage">{arrival.headline}</p>
+                        <p className="monospace wf-id">{wf.id}</p>
+                        {wf.txId ? (
+                          <p className="wf-txid">
+                            Tx: <span className="monospace">{truncateAddress(wf.txId, 10, 8)}</span>
+                          </p>
+                        ) : null}
+                        <small className="muted">{wf.updatedAt}</small>
                       </button>
-                    ) : null}
-                    {isSelected ? (
-                      <WorkflowArrivalView
-                        action={wf.action}
-                        state={wf.state}
-                        createdAt={wf.createdAt}
-                        nextAction={wf.nextAction}
-                        nowMs={nowMs}
-                        txid={wf.txId}
-                      />
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
+                      {canCancelUnsignedWorkflow(wf.state) && onCancelWorkflow ? (
+                        <button
+                          type="button"
+                          className="button-secondary wf-cancel-btn"
+                          disabled={cancellingId === wf.id}
+                          onClick={() => onCancelWorkflow(wf.id)}
+                        >
+                          {cancellingId === wf.id ? "Cancelling…" : "Cancel unsigned"}
+                        </button>
+                      ) : null}
+                      {isSelected ? (
+                        <WorkflowArrivalView
+                          action={wf.action}
+                          state={wf.state}
+                          createdAt={wf.createdAt}
+                          nextAction={wf.nextAction}
+                          nowMs={nowMs}
+                          txid={wf.txId}
+                        />
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
             </>
           )}
         </section>

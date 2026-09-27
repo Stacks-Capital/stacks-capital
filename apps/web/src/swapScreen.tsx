@@ -413,18 +413,14 @@ export function Swap({ wallet, signedIn }: { wallet: ConnectedWallet | null; sig
               <span>Pay asset</span>
               <strong>{inputAsset.name}</strong>
               <small>
-                {inputSpot === null
-                  ? "USD unavailable"
-                  : `${inputSpot} · ${inputPrice?.status ?? "observed"}`}
+                {inputSpot === null ? "USD unavailable" : `${inputSpot} · ${inputPrice?.status ?? "observed"}`}
               </small>
             </div>
             <div>
               <span>Receive asset</span>
               <strong>{outputAsset.name}</strong>
               <small>
-                {outputSpot === null
-                  ? "USD unavailable"
-                  : `${outputSpot} · ${outputPrice?.status ?? "observed"}`}
+                {outputSpot === null ? "USD unavailable" : `${outputSpot} · ${outputPrice?.status ?? "observed"}`}
               </small>
             </div>
             <div>

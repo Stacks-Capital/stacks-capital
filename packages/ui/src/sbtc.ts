@@ -66,10 +66,7 @@ const BECH32_GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
 export const PLACEHOLDER_BTC_RECIPIENT = "04:00112233445566778899aabbccddeeff00112233";
 export const PLACEHOLDER_BTC_HASHBYTES = "00112233445566778899aabbccddeeff00112233";
 /** Consensus burn addresses. sBTC minted here is not recoverable by a user wallet. */
-export const BURN_STACKS_RECIPIENTS = [
-  "SP000000000000000000002Q6VF78",
-  "ST000000000000000000002AMW42H",
-] as const;
+export const BURN_STACKS_RECIPIENTS = ["SP000000000000000000002Q6VF78", "ST000000000000000000002AMW42H"] as const;
 
 export type RecipientValidation = {
   valid: boolean;
@@ -167,7 +164,9 @@ function decodeBech32Address(address: string): { version: number; program: strin
   return { version: witnessVersion, program };
 }
 
-export function bitcoinRecipientFromAddress(address: string): { recipient: string; address: string } | { error: string } {
+export function bitcoinRecipientFromAddress(
+  address: string,
+): { recipient: string; address: string } | { error: string } {
   const decoded = decodeBech32Address(address);
   if ("error" in decoded) return decoded;
   const contractVersion = decoded.version === 0 ? (decoded.program.length === 40 ? "04" : "05") : "06";
@@ -247,8 +246,7 @@ export function validateBtcRecipient(recipient: string): RecipientValidation {
 export function withdrawRecipientFromPlan(plan: {
   steps: ReadonlyArray<{ payload?: Record<string, unknown> }>;
 }): { version: string; hashbytes: string } | null {
-  const step =
-    plan.steps.find((item) => item.payload?.functionName === "initiate-withdrawal-request") ?? plan.steps[0];
+  const step = plan.steps.find((item) => item.payload?.functionName === "initiate-withdrawal-request") ?? plan.steps[0];
   const args = step?.payload?.functionArgs;
   const dest = Array.isArray(args) ? args[1] : undefined;
   if (dest === null || typeof dest !== "object" || !("type" in dest) || dest.type !== "tuple") return null;
@@ -286,7 +284,10 @@ export function assertSafeWithdrawPayout(input: {
   }
   const expected = validateBtcRecipient(input.destinationAddress);
   if (!expected.valid || expected.encoded === undefined) {
-    return { ok: false, error: expected.error ?? "Connect a Bitcoin wallet so payout can go to an address you control." };
+    return {
+      ok: false,
+      error: expected.error ?? "Connect a Bitcoin wallet so payout can go to an address you control.",
+    };
   }
   if (expected.encoded.toLowerCase() !== input.encodedRecipient.toLowerCase()) {
     return { ok: false, error: "Payout address changed after the preview. Wait for the preview to refresh." };

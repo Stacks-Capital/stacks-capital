@@ -100,10 +100,7 @@ export function depositOutputAddress(tx: BitcoinRecoverTx): string | null {
   return typeof address === "string" && address.startsWith("bc1p") ? address : null;
 }
 
-export async function fetchBitcoinRecoverTx(
-  txid: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<BitcoinRecoverTx> {
+export async function fetchBitcoinRecoverTx(txid: string, fetchImpl: typeof fetch = fetch): Promise<BitcoinRecoverTx> {
   const id = txid.replace(/^0x/i, "").toLowerCase();
   const response = await fetchImpl(`https://mempool.space/api/tx/${id}`, {
     headers: { accept: "application/json" },

@@ -93,7 +93,9 @@ module.exports = {
   ],
   options: {
     doNotFollow: { path: "node_modules" },
-    exclude: { path: "(^|/)(dist|node_modules|playwright-report|test-results)/" },
+    exclude: {
+      path: "(^|/)(dist|node_modules|playwright-report|test-results)/|^scripts/generate-production-plan-pdf\\.mjs$",
+    },
     tsPreCompilationDeps: true,
     tsConfig: { fileName: "tsconfig.base.json" },
     enhancedResolveOptions: {

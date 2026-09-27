@@ -20,9 +20,7 @@ describe("live withdraw recipient", () => {
       (error: unknown) => error instanceof ApiError && error.code === "INVALID_REQUEST",
     );
     assert.throws(() => liveQuoteRecipient("withdraw_sbtc", "SPOWNER", "SPOWNER"));
-    assert.throws(() =>
-      liveQuoteRecipient("withdraw_sbtc", "04:00112233445566778899aabbccddeeff00112233", "SPOWNER"),
-    );
+    assert.throws(() => liveQuoteRecipient("withdraw_sbtc", "04:00112233445566778899aabbccddeeff00112233", "SPOWNER"));
     assert.equal(
       liveQuoteRecipient("withdraw_sbtc", "04:751e76e8199196d454941c45d1b3a323f1433bd6", "SPOWNER"),
       "04:751e76e8199196d454941c45d1b3a323f1433bd6",

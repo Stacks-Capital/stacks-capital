@@ -35,12 +35,14 @@ import {
 import { createExecutionEngine, loadServerReads } from "@stacks-capital/engine";
 import { ApiError } from "./errors.ts";
 import {
+  type BitcoinRecoverTx,
   depositOutputAddress,
   depositOutputSats,
   fetchBitcoinRecoverTx,
   isBurnStacksRecipient,
   notifySbtcDeposit,
   p2wpkhSpendPublicKey,
+  type PreparedSbtcDeposit,
   prepareSbtcDeposit,
 } from "./sbtcDeposit.ts";
 
@@ -481,21 +483,29 @@ export async function attachFoundBroadcast(
   if (record === null) throw new ApiError("NOT_FOUND", "No such workflow");
   if (record.network !== input.network) throw new ApiError("NETWORK_MISMATCH", `Workflow is on ${record.network}`);
   if (record.state !== "AWAITING_SIGNATURE" && record.state !== "BROADCAST_UNKNOWN") {
-    throw new ApiError("INVALID_REQUEST", `A found Bitcoin txid cannot be attached while the workflow is ${record.state}`);
+    throw new ApiError(
+      "INVALID_REQUEST",
+      `A found Bitcoin txid cannot be attached while the workflow is ${record.state}`,
+    );
   }
 
   const txid = input.txid.replace(/^0x/i, "").toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(txid)) throw new ApiError("INVALID_REQUEST", "txid must be 32-byte hex");
 
-  let bitcoin;
+  let bitcoin: BitcoinRecoverTx;
   try {
     bitcoin = await fetchBitcoinRecoverTx(txid);
   } catch (error) {
-    throw new ApiError("INVALID_REQUEST", error instanceof Error ? error.message : "Bitcoin transaction could not be read");
+    throw new ApiError(
+      "INVALID_REQUEST",
+      error instanceof Error ? error.message : "Bitcoin transaction could not be read",
+    );
   }
 
   const stored =
-    record.quoteId === null ? null : await findStoredQuote(deps.sql, { quoteId: record.quoteId, network: input.network });
+    record.quoteId === null
+      ? null
+      : await findStoredQuote(deps.sql, { quoteId: record.quoteId, network: input.network });
   const step = stored?.plan.steps[0];
   if (step === undefined || step.payload.kind !== "bitcoin_deposit") {
     throw new ApiError("INVALID_REQUEST", "Only official sBTC deposits can attach a found Bitcoin txid");
@@ -512,7 +522,7 @@ export async function attachFoundBroadcast(
   if (reclaimPublicKey === null) {
     throw new ApiError("INVALID_REQUEST", "The Bitcoin spend did not expose a reclaim public key");
   }
-  let prepared;
+  let prepared: PreparedSbtcDeposit;
   try {
     prepared = await prepareSbtcDeposit({
       network: "mainnet",
@@ -523,7 +533,10 @@ export async function attachFoundBroadcast(
       reclaimLockTime: step.payload.reclaimLockTime,
     });
   } catch (error) {
-    throw new ApiError("INVALID_REQUEST", error instanceof Error ? error.message : "Could not rebuild the deposit script");
+    throw new ApiError(
+      "INVALID_REQUEST",
+      error instanceof Error ? error.message : "Could not rebuild the deposit script",
+    );
   }
   const outputAddress = depositOutputAddress(bitcoin);
   if (outputAddress !== prepared.address) {

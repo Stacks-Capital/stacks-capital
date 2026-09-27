@@ -9,7 +9,7 @@ import {
   type QuoteWire,
 } from "@stacks-capital/sdk";
 import type { WalletId } from "@stacks-capital/wallets";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   askBitcoinTransfer,
   askWallet,
@@ -356,6 +356,8 @@ export function DepositBtcScreen({
     };
   }, [signedIn, wallet?.network, bitcoinAddress]);
 
+  // The body only clears a flag; destinationAddress is the reset trigger.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: destinationAddress is the reset key
   useEffect(() => {
     setConfirmForeignPayout(false);
   }, [destinationAddress]);
@@ -437,17 +439,7 @@ export function DepositBtcScreen({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [
-    signedIn,
-    wallet,
-    client,
-    mode,
-    amount,
-    maxFee,
-    encodedRecipient,
-    recipientCheck.valid,
-    belowMinimum,
-  ]);
+  }, [signedIn, wallet, client, mode, amount, maxFee, encodedRecipient, recipientCheck.valid, belowMinimum]);
 
   useEffect(() => {
     if (activeWorkflowId !== null || !userWorkflows.data?.items) return;
@@ -472,31 +464,37 @@ export function DepositBtcScreen({
     (workflowState !== null &&
       ["SUBMITTED", "CONFIRMING", "STEP_CONFIRMED", "RECONCILING", "BROADCAST_UNKNOWN"].includes(workflowState));
 
-  function dismissWorkflow(id: string | null) {
-    if (id === null) return;
-    rememberIgnoredSbtcWorkflow(id);
-    setIgnoredWorkflowId(id);
-    if (activeWorkflowId === id) setActiveWorkflowId(null);
-    setStarted(null);
-    setFollowTxid(null);
-    setRecoverHint(null);
-  }
+  const dismissWorkflow = useCallback(
+    (id: string | null) => {
+      if (id === null) return;
+      rememberIgnoredSbtcWorkflow(id);
+      setIgnoredWorkflowId(id);
+      if (activeWorkflowId === id) setActiveWorkflowId(null);
+      setStarted(null);
+      setFollowTxid(null);
+      setRecoverHint(null);
+    },
+    [activeWorkflowId],
+  );
 
   useEffect(() => {
     if (stage !== "done" || activeWorkflowId === null) return;
     dismissWorkflow(activeWorkflowId);
-  }, [stage, activeWorkflowId]);
+  }, [stage, activeWorkflowId, dismissWorkflow]);
+
+  const refreshUserWorkflows = userWorkflows.refresh;
+  const refreshWorkflow = workflowQuery.refresh;
 
   useEffect(() => {
     if (!showProgress) return undefined;
     setNowMs(Date.now());
     const id = window.setInterval(() => {
       setNowMs(Date.now());
-      void userWorkflows.refresh();
-      void workflowQuery.refresh();
+      void refreshUserWorkflows();
+      void refreshWorkflow();
     }, 15_000);
     return () => window.clearInterval(id);
-  }, [showProgress]);
+  }, [showProgress, refreshUserWorkflows, refreshWorkflow]);
 
   useEffect(() => {
     if (mode !== "deposit" || recoverHint === null || activeWorkflowId === null) return;
@@ -507,8 +505,8 @@ export function DepositBtcScreen({
       try {
         await client.attachFoundBroadcast(activeWorkflowId, { txid: found });
         setFollowTxid(found);
-        await userWorkflows.refresh();
-        await workflowQuery.refresh();
+        await refreshUserWorkflows();
+        await refreshWorkflow();
       } catch {
         /* The send may already be attached, or this workflow is a different quote. */
       }
@@ -516,7 +514,7 @@ export function DepositBtcScreen({
     return () => {
       cancelled = true;
     };
-  }, [mode, recoverHint, activeWorkflowId, workflowState, client]);
+  }, [mode, recoverHint, activeWorkflowId, workflowState, client, refreshUserWorkflows, refreshWorkflow]);
 
   function resetForm() {
     dismissWorkflow(activeWorkflowId);
@@ -551,8 +549,7 @@ export function DepositBtcScreen({
     mode === "deposit"
       ? formatBtc(depositAcc?.minExpectedSbtcSats ?? "0")
       : formatBtc(withdrawAcc?.withdrawalAmountSats ?? (amount || "0"));
-  const feeConsumesDeposit =
-    mode === "deposit" && depositAcc !== null && BigInt(depositAcc.minExpectedSbtcSats) === 0n;
+  const feeConsumesDeposit = mode === "deposit" && depositAcc !== null && BigInt(depositAcc.minExpectedSbtcSats) === 0n;
   const portfolioEntries = portfolio.data?.data.entries ?? [];
   const sbtcSpendable =
     hiroBalances !== null
@@ -577,14 +574,12 @@ export function DepositBtcScreen({
   const sendUsd = formatUsdFromDisplay(displayAmount, BTC_DECIMALS, btcQuote);
   const receiveUsd = belowMinimum ? null : formatUsdFromDisplay(receiveDisplay, BTC_DECIMALS, btcQuote);
   const feeUsd = formatUsdFromDisplay(displayFee, BTC_DECIMALS, btcQuote);
-  const payBalanceUsd =
-    paySpendable === null ? null : formatUsdFromBase(paySpendable, BTC_DECIMALS, btcQuote);
+  const payBalanceUsd = paySpendable === null ? null : formatUsdFromBase(paySpendable, BTC_DECIMALS, btcQuote);
   const receiveBalanceUsd =
     receiveSpendable === null ? null : formatUsdFromBase(receiveSpendable, BTC_DECIMALS, btcQuote);
   const btcSpot = formatSpotUsd(btcQuote);
   const matchesConnectedWallet =
-    wallet?.bitcoinAddress !== undefined &&
-    destinationAddress.toLowerCase() === wallet.bitcoinAddress.toLowerCase();
+    wallet?.bitcoinAddress !== undefined && destinationAddress.toLowerCase() === wallet.bitcoinAddress.toLowerCase();
   const mintDestination = prepared?.stacksRecipient ?? wallet?.address ?? "";
   const depositMatchesWallet =
     wallet?.address !== undefined && mintDestination !== "" && mintDestination === wallet.address;
@@ -818,7 +813,8 @@ export function DepositBtcScreen({
 
         <p className="bridge-min">
           You must send at least {MIN_BRIDGE_BTC} bitcoin. The signer fee is taken from that amount, so send more than
-          the fee. Leather needs about {fromBaseUnits(minerReserveSats, BTC_DECIMALS)} bitcoin leftover for the miner fee
+          the fee. Leather needs about {fromBaseUnits(minerReserveSats, BTC_DECIMALS)} bitcoin leftover for the miner
+          fee
           {btcSpot === null ? "" : ` · 1 BTC ≈ ${btcSpot}`}
         </p>
         {options.cta}
@@ -1110,7 +1106,11 @@ export function DepositBtcScreen({
                 {recipientCheck.error}
               </p>
             )}
-            {overBalance !== null && <p className="error" style={{ fontSize: "0.85rem" }}>{overBalance}</p>}
+            {overBalance !== null && (
+              <p className="error" style={{ fontSize: "0.85rem" }}>
+                {overBalance}
+              </p>
+            )}
             {maxUnavailableReason !== null && (
               <p className="error" style={{ fontSize: "0.85rem" }}>
                 {maxUnavailableReason}
@@ -1125,7 +1125,10 @@ export function DepositBtcScreen({
               </p>
             )}
             {mode === "withdraw" && quoted !== null ? (
-              <p className={matchesConnectedWallet ? "muted" : "warn"} style={{ marginTop: "0.8rem", fontSize: "0.85rem" }}>
+              <p
+                className={matchesConnectedWallet ? "muted" : "warn"}
+                style={{ marginTop: "0.8rem", fontSize: "0.85rem" }}
+              >
                 {matchesConnectedWallet
                   ? "Destination matches connected wallet. A Stacks txid is not a payout. Workflow completes only after signer acceptance and the Bitcoin payout."
                   : `Destination does not match connected wallet: ${destinationAddress}. A Stacks txid is not a payout.`}

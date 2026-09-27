@@ -214,11 +214,8 @@ describe("what the wallet is asked to sign", () => {
     assert.equal(transfer.method, "sendTransfer");
     assert.equal(transfer.params.recipients[0]?.amount, "100000");
     assert.equal(
-      toBitcoinTransferRequest(
-        "bc1pt6aahs3cxh5xs3sj4v72ep8ntgau5gw9p2cfqqkxw42hkq890g8s9edjwf",
-        "100000",
-        "xverse",
-      ).params.recipients[0]?.amount,
+      toBitcoinTransferRequest("bc1pt6aahs3cxh5xs3sj4v72ep8ntgau5gw9p2cfqqkxw42hkq890g8s9edjwf", "100000", "xverse")
+        .params.recipients[0]?.amount,
       100000,
     );
     assert.throws(() => toBitcoinTransferRequest("bc1qnottaprootxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "1"), /P2TR/);

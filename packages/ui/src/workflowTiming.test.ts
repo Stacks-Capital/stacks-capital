@@ -123,7 +123,13 @@ describe("workflow arrival timing", () => {
   });
 
   it("formats elapsed durations", () => {
-    assert.equal(formatElapsedSince("2026-09-24T12:00:00.000Z", Date.parse("2026-09-24T12:00:20.000Z")), "less than a minute");
-    assert.equal(formatElapsedSince("2026-09-24T12:00:00.000Z", Date.parse("2026-09-24T14:10:00.000Z")), "2 hours 10 min");
+    assert.equal(
+      formatElapsedSince("2026-09-24T12:00:00.000Z", Date.parse("2026-09-24T12:00:20.000Z")),
+      "less than a minute",
+    );
+    assert.equal(
+      formatElapsedSince("2026-09-24T12:00:00.000Z", Date.parse("2026-09-24T14:10:00.000Z")),
+      "2 hours 10 min",
+    );
   });
 });

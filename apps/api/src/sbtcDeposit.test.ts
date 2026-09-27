@@ -184,13 +184,17 @@ describe("sBTC deposit construction", () => {
     assert.equal(normalizeBitcoinTxHex("  0xAa\n"), "aa");
     assert.equal(normalizeBitcoinTxHex("Transaction not found"), null);
     const attempts: string[] = [];
-    const hex = await fetchBitcoinTxHex("11".repeat(32), async (url) => {
-      attempts.push(String(url));
-      if (attempts.length < 2) {
-        return new Response("Transaction not found", { status: 404 });
-      }
-      return new Response("00ff\n", { status: 200 });
-    }, [0, 1]);
+    const hex = await fetchBitcoinTxHex(
+      "11".repeat(32),
+      async (url) => {
+        attempts.push(String(url));
+        if (attempts.length < 2) {
+          return new Response("Transaction not found", { status: 404 });
+        }
+        return new Response("00ff\n", { status: 200 });
+      },
+      [0, 1],
+    );
     assert.equal(hex, "00ff");
     assert.equal(attempts.length >= 2, true);
   });

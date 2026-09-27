@@ -28,8 +28,7 @@ export function WorkflowArrivalView({
         ? bitcoinExplorerTxUrl(cleanTxid, network)
         : explorerTxUrl(cleanTxid, network);
   const explorerLabel = kind === "deposit" ? "Bitcoin send" : "Stacks transaction";
-  const clockLabel =
-    arrival.phase === "arrived" ? "Time left" : arrival.phase === "stopped" ? "Status" : "Time left";
+  const clockLabel = arrival.phase === "arrived" ? "Time left" : arrival.phase === "stopped" ? "Status" : "Time left";
 
   return (
     <section className={`workflow-arrival phase-${arrival.phase}`} aria-label={`${arrival.title} status`}>

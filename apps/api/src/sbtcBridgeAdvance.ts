@@ -159,23 +159,21 @@ async function withdrawalComplete(input: {
   }
 
   const requestId = parseWithdrawalRequestId(initiate);
-  let emily = requestId === null
-    ? null
-    : await fetchEmilyWithdrawal({
-        network: "mainnet",
-        requestId,
-        fetch: input.fetch,
-        ...(input.signal === undefined ? {} : { signal: input.signal }),
-      });
+  let emily =
+    requestId === null
+      ? null
+      : await fetchEmilyWithdrawal({
+          network: "mainnet",
+          requestId,
+          fetch: input.fetch,
+          ...(input.signal === undefined ? {} : { signal: input.signal }),
+        });
 
   if (emily === null && input.ownerAddress !== null) {
-    const listed = await input.fetch(
-      `${PROVIDERS.mainnet.emily}/withdrawal/sender/${input.ownerAddress}`,
-      {
-        headers: { accept: "application/json" },
-        ...(input.signal === undefined ? {} : { signal: input.signal }),
-      },
-    );
+    const listed = await input.fetch(`${PROVIDERS.mainnet.emily}/withdrawal/sender/${input.ownerAddress}`, {
+      headers: { accept: "application/json" },
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
+    });
     if (listed.ok) {
       const body = (await listed.json()) as { withdrawals?: unknown[] } | unknown[];
       const rows = Array.isArray(body) ? body : (body.withdrawals ?? []);
@@ -186,9 +184,7 @@ async function withdrawalComplete(input: {
             emily = parsed;
             break;
           }
-        } catch {
-          continue;
-        }
+        } catch {}
       }
     }
   }

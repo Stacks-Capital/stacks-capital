@@ -14,7 +14,10 @@ describe("Public spot dollar quotes", () => {
     const spot = [{ feedKey: "BTC/USD", price: "11000000000000", scale: 8, source: "coinbase-spot" }];
     assert.equal(usableUsdQuote(oracle[0]), false);
     assert.equal(pickUsdQuote("BTC/USD", oracle, spot)?.price, "11000000000000");
-    assert.equal(pickUsdQuote("BTC/USD", [{ feedKey: "BTC/USD", price: "7000000000000", scale: 8 }], spot)?.price, "7000000000000");
+    assert.equal(
+      pickUsdQuote("BTC/USD", [{ feedKey: "BTC/USD", price: "7000000000000", scale: 8 }], spot)?.price,
+      "7000000000000",
+    );
     assert.equal(pickUsdQuote("ALEX/USD", oracle, spot), undefined);
   });
 

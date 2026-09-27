@@ -20,7 +20,13 @@ const COINGECKO_IDS = {
 } as const;
 
 export function usableUsdQuote(quote: TokenUsdQuote | null | undefined): quote is TokenUsdQuote {
-  return quote !== null && quote !== undefined && quote.price !== null && quote.price !== "0" && quote.status !== "unsupported";
+  return (
+    quote !== null &&
+    quote !== undefined &&
+    quote.price !== null &&
+    quote.price !== "0" &&
+    quote.status !== "unsupported"
+  );
 }
 
 export function scaledPriceFromDecimal(display: string, scale = SPOT_SCALE): string | null {
@@ -112,9 +118,7 @@ export function usePublicSpotQuotes(oracleItems: readonly TokenUsdQuote[] | unde
   items: TokenUsdQuote[];
   loading: boolean;
 } {
-  const oracleReady = DISPLAY_FEEDS.every((feed) =>
-    usableUsdQuote(oracleItems?.find((item) => item.feedKey === feed)),
-  );
+  const oracleReady = DISPLAY_FEEDS.every((feed) => usableUsdQuote(oracleItems?.find((item) => item.feedKey === feed)));
   const [items, setItems] = useState<TokenUsdQuote[]>([]);
   const [loading, setLoading] = useState(!oracleReady);
 
