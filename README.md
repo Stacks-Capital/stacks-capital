@@ -1,100 +1,115 @@
 # Stacks Capital
 
-Stacks Capital is a non-custodial application for Bitcoin capital on Stacks. It moves BTC into sBTC, compares verified yield, borrows against Bitcoin collateral, swaps, provides liquidity, and takes capital back out, with the risk and the evidence behind every number visible before anything is signed.
+One place to put Bitcoin capital to work on Stacks — without stitching five protocol apps together, and without trusting a dashboard that invents a rate.
 
-This repository holds both halves: the platform, which is the protocol adapters, the signed capability registry, guarded plan construction, the durable workflow engine and the public SDK, and the application built on top of it. The application imports only the public packages a partner would install, enforced in CI. It is consumer number one, not a special case.
+Stacks Capital is a non-custodial application and a public SDK. Users move BTC into sBTC, **compare verified earn rates across DeFi protocols**, borrow, swap, and take capital back out. Partners embed the same quote → plan → sign → reconcile path. The wallet signs every transaction directly against the protocol. Stacks Capital never holds keys or funds.
 
-The product is designed around one operating rule: **unknown, stale and unsupported are explicit states, never zero, and the user's wallet signs every transaction directly against the protocol**. Stacks Capital never holds keys or funds, never pools capital, and never constructs a call to a contract it has not reviewed.
+**Unknown, stale and unsupported are explicit states, never zero.**
+
+## The problem
+
+Bitcoin on Stacks already has real yield, credit and markets: sBTC, Zest, Granite, Bitflow, and more coming. What it does not have is a single honest front door.
+
+- Each protocol is its own app, wallet prompt and risk vocabulary.
+- “Best APY” screens mix on-chain rates with marketing numbers, treat a missing incentive as 0%, and rank sBTC supply against a dollar vault as if they were the same product.
+- A paused market, a dry vault, or a strategy you cannot exit still looks like an opportunity.
+- Wallets and partners who want to offer Stacks DeFi have to re-implement every adapter, post-condition and recovery path themselves.
+
+The cost is not just friction. Capital stays idle, or it is deployed on a number nobody can defend.
+
+## Who this is for
+
+| Audience | What they get |
+| --- | --- |
+| **Bitcoin holders** | Bridge BTC ↔ sBTC, then earn, borrow or swap without becoming a protocol expert. |
+| **Allocators and funds** | Same-asset rate comparison with source, timestamp and confidence on every figure — listed, not ranked, when the evidence is not there. |
+| **Wallets, neobanks and Stacks apps** | A public SDK that already does the hard part: reviewed contracts, integer amounts, deny-mode plans, durable workflows. |
+| **The Stacks ecosystem** | One distribution surface that sends users *into* existing protocols instead of wrapping or pooling their capital. |
+
+This repository is both the platform and consumer number one. The application imports only the public packages a partner would install. CI enforces that boundary.
+
+## Compare DeFi rates, then deploy
+
+Earn is a marketplace, not a single-protocol deposit button. `GET /v1/earn/options` serves one row per supply market. The app ranks them with `compareEarn` — the comparison is implemented, tested, and the only ranking path that exists.
+
+**What you see for each market**
+
+- Supplied asset and receipt (for example sBTC in, zsBTC out)
+- Base rate from a live market snapshot; incentive rate from a reward snapshot
+- Liquidity, capacity, pause state, and whether you can withdraw
+- Source, observation time and evidence confidence
+
+**How ranking works**
+
+1. Options are grouped by the **asset you supply**. Zest sBTC is never ranked against a USDCx vault. The screen says so.
+2. Inside a group, rank is **base + incentive**, added at the finer of the two scales. A missing incentive is **not treated as zero** — the option ranks on the base rate with the gap labelled.
+3. An option is **listed but not ranked** when supply is off, the market is paused, withdrawal is missing or disabled, no rate has been read, the reading is stale or older than **300 seconds**, capacity or liquidity cannot be evidenced, or independent reads disagree.
+4. A strategy you cannot leave is not ranked beside one you can. Exit conditions are a gate, not a footnote.
+5. Fees belong on the quote for a specific amount, not on the comparison table. Rates are shown as the protocol reports them — no invented APY, no silent compounding.
+
+That is the product edge for users: you can see Zest against the next certified supply market on the same asset, and you can see why a row is *not* a recommendation.
+
+Adapters in this repo today:
+
+| Protocol | What users can do | Earn comparison |
+| --- | --- | --- |
+| sBTC | BTC deposit, sBTC withdrawal | Bridge, not a yield row |
+| Zest | Supply and withdraw (sBTC vault certified); credit surfaces exist | Live earn row when snapshots are fresh |
+| Granite | Isolated sBTC collateral, USDCx borrow / repay | Collateral is not ranked as earn — it is not lent and does not pay a supply rate |
+| Bitflow | Exact-input swaps | Swap, not a vault row; LP is not executable until pools are pinned |
+| Hermetica | sUSDh vault | Documented unavailable — never shown as a ranked rate |
+| Stacking | STX / PoX routes | Certified unavailable until lockup signing is verified |
+
+Capabilities that do not exist appear as unavailable, with a reason. No rate is invented for them.
+
+## The product edge
+
+- **Non-custodial orchestration.** Your wallet signs the protocol call. There is no pooled vault and no discretionary manager.
+- **Evidence-gated numbers.** On-chain rates are never mixed with a provider talking about itself. A stale or disputed price is withheld, not averaged.
+- **Guarded plans.** A quote is informational. A plan binds the quote, registry version, adapter version, network and expiry. Minimum output is an on-chain argument *and* a deny-mode post-condition.
+- **Integer money.** Amounts stay exact strings or bigints from quote through signing. JavaScript numbers do not decide a contract call.
+- **Durable workflows.** Choose, quote, review, sign, submit, confirm, reconcile. A reload resumes. An uncertain broadcast is never blindly retried. A reorg rewinds the evidence that depended on it.
+- **Signed capability registry.** Unreviewed contract principals cannot produce an executable plan. Writes can pause while exits stay on.
+
+## The SDK edge
+
+The public surface is `@stacks-capital/sdk`, `@stacks-capital/client`, `@stacks-capital/react`, `@stacks-capital/ui`, `@stacks-capital/wallets` and `@stacks-capital/core`.
+
+Partners do not re-build Stacks DeFi from Hiro calls and a spreadsheet of APYs. They get:
+
+- the same earn comparison and quote/plan types the first-party app uses;
+- Leather and Xverse signing against a validated plan;
+- typed financial errors, cache and React hooks;
+- a sandbox entry/exit in [`apps/partner-example`](apps/partner-example) that is forbidden from importing private packages.
+
+The packages are built and used here. They have **not been published to npm**.
+
+## Value to Stacks
+
+Stacks Capital does not launch a new money market. It makes the ones that already exist usable as a portfolio.
+
+- **Distribution for protocols.** Zest, Granite, Bitflow and sBTC keep their contracts and liquidity. Users reach them through one reviewed path.
+- **Less fragmented capital.** Comparison only happens when two markets are the same product (same asset, same action, evidenced exit). That is how Bitcoin on Stacks compounds instead of sitting in five disconnected balances.
+- **A standard for wallets.** If the SDK is the integration, every partner inherits fail-closed prices, post-conditions and recovery — the ecosystem does not get a new class of “we averaged the oracle” accidents.
+- **Honesty as infrastructure.** Publishing unavailable states and launch no-gos is part of the product. A green test suite is not a claim that mainnet funds have moved.
 
 ## Status
 
-This is not launched. There is no deployed URL, and no user has moved mainnet funds through it.
+This is not launched. There is no deployed URL, and no user has moved mainnet funds through a production release of this app.
 
 | Area | State |
 | --- | --- |
 | Production launch | **No-go**, recorded in [`docs/release/launch-decision.md`](docs/release/launch-decision.md) |
-| Closed mainnet pilot | **No-go** until pilot blockers B4, B5 and B7 close |
-| Certified on mainnet | None. Every protocol capability is listed with the reason it is not certified |
-| Automated checks | Green. More than 700 automated tests across unit, integration and browser suites |
+| Closed mainnet pilot | **No-go** until pilot blockers close |
+| Certified on mainnet | None listed as certified. Sandbox Zest supply is the furthest executable earn path |
+| Automated checks | Green across unit, integration and browser suites |
 | Backup, restore, rollback | Drilled, passing |
 
-Open blockers are tracked in [`docs/release/pilot-checklist.md`](docs/release/pilot-checklist.md). We publish these rather than hide them, because a green test suite is not evidence that a product works. Two of the blockers were found by re-running commands and reading code after the suite was already green.
-
-## What Stacks Capital provides
-
-### Evidence-gated reads
-
-Every price, rate, liquidity and capacity figure carries its source, its observation timestamp or block, and its confidence. From that:
-
-- a rate read on chain is never mixed with a rate a provider reported about itself;
-- a market whose deployable capacity cannot be evidenced is listed but never ranked or recommended;
-- a reading older than 300 seconds cannot drive a ranking or an allocation;
-- prices come from a quorum that withholds the price entirely when independent sources disagree beyond tolerance, rather than averaging them;
-- a portfolio total discloses what it valued and what it could not, instead of coercing unpriced assets to zero.
-
-### Signed capability registry
-
-Reviewed assets, deployments, actions and adapter versions are held in an Ed25519-signed registry with a version, per network. From that:
-
-- an unreviewed contract principal cannot produce an executable plan;
-- capabilities carry activation, rollback and safe-exit-only states;
-- read and exit capabilities survive a write pause, so a user can always leave a position even when entries are frozen;
-- capabilities can be paused or disabled from an operations command without a deploy.
-
-### Certified protocol adapters
-
-Adapters are conformance tested against fixtures for reads, quotes, plans and reconciliation, and must declare their own semantics. An adapter cannot infer a field it did not read.
-
-| Protocol | Actions | State |
-| --- | --- | --- |
-| sBTC | BTC deposit, sBTC withdrawal | Adapter and lifecycle built; no Bitcoin or Emily ingestion yet |
-| Zest | Supply, withdraw, collateral, borrow, repay | Adapter and lifecycle built |
-| Granite | Supply, withdraw, collateral, borrow, repay | Adapter built |
-| Bitflow | Exact-input swaps | Swap adapter built; liquidity provision not built |
-| Hermetica | Stake, unstake, rewards | Not built |
-| Stacking providers | STX stacking, verified staking routes | Certified as unavailable only |
-
-Capabilities that do not exist are surfaced as documented unavailable states with a reason. They are never shown as executable, and no rate is invented for them.
-
-### Guarded plans and on-chain enforcement
-
-A quote is informational. A plan binds the quote, the registry version, the adapter version, the network, the deployment and an expiry, and is validated locally before a wallet is ever opened. For a swap that means:
-
-- the minimum output is bound as a contract argument **and** as a deny-mode post-condition, so the chain itself rejects a transaction returning less than the user was shown;
-- asset identifiers are reconciled against the signed registry by exact principal, asset name and network, not by substring;
-- an expired quote cannot reach signing;
-- quantities stay integer base units as exact strings or bigints through quoting, plan construction and signing; no floating-point arithmetic decides an amount that reaches a contract call.
-
-### Durable workflows
-
-Every action runs the same lifecycle: choose, quote, review, wallet sign, submit, confirm, reconcile, receipt or recovery. Every state transition is persisted and append-only, enforced by a database trigger.
-
-- A reload resumes at the exact step the user left.
-- An uncertain broadcast is never blindly retried.
-- A reorg rewinds affected evidence and the workflows that depended on it.
-- A transaction that reverted on chain is recorded as failed, not as confirmed.
-
-Workflows currently reach `STEP_CONFIRMED` from chain evidence. Completion requires canonical position reconciliation, which is not built yet, so nothing reaches `COMPLETED`.
-
-### The application
-
-Ten screens, each built only on public SDK exports, enforced in CI: Overview, Bridge, Earn, Borrow, Swap, Liquidity, Staking, Positions, Risk and Activity.
-
-Eight canonical states are centralised rather than reinvented per screen: loading, empty, partial, unsupported, stale or disputed, review, submitted, failed or delayed. Risk is never communicated by colour alone, every amount carries its asset unit, tables become labelled cards below tablet width, and workflow progress is announced through live regions.
-
-### Partner SDK
-
-The public surface is `@stacks-capital/sdk`, `@stacks-capital/client`, `@stacks-capital/react`, `@stacks-capital/ui`, `@stacks-capital/wallets` and `@stacks-capital/core`. A partner application in [`apps/partner-example`](apps/partner-example) runs a sandbox entry and exit through public packages only, with the boundary enforced by an architecture check rather than by convention.
-
-The packages are built and used by this repository. They have **not been published to npm**.
+Open blockers: [`docs/release/pilot-checklist.md`](docs/release/pilot-checklist.md).
 
 ## Run locally
 
-Requirements:
-
-- Node.js 24 (see `.nvmrc`);
-- pnpm 12;
-- Docker, for PostgreSQL and Redis.
+Requirements: Node.js 24 (`.nvmrc`), pnpm 12, Docker (PostgreSQL and Redis).
 
 ```sh
 nvm install && nvm use
@@ -110,19 +125,17 @@ pnpm fixtures:seed
 pnpm dev
 ```
 
-The application runs on `http://localhost:5173`. The full walkthrough, including running the API, worker and partner example separately, is in [`docs/guides/quickstart.md`](docs/guides/quickstart.md). Do not commit any `.env.local`.
+The application runs on `http://localhost:5173`. Full walkthrough: [`docs/guides/quickstart.md`](docs/guides/quickstart.md). Do not commit any `.env.local`.
+
+Landing (product site): `pnpm landing:dev`.
 
 ## Verification
-
-Core verification, which is what CI runs:
 
 ```sh
 pnpm run ci
 ```
 
-That is `lint`, `boundaries`, `typecheck`, unit, fixture and check tests, `build`, and the OpenAPI and error-document contracts.
-
-Individual suites:
+That is lint, boundaries, typecheck, unit, fixture and check tests, build, and the OpenAPI and error-document contracts.
 
 ```sh
 pnpm typecheck
@@ -131,46 +144,35 @@ pnpm boundaries          # architecture and dependency rules
 pnpm adapters:certify    # adapter conformance report
 pnpm test:integration    # requires PostgreSQL
 pnpm test:browser        # Playwright, desktop and mobile
-```
-
-Release gates and evidence:
-
-```sh
 pnpm gate:k38            # live protocol, golden address and failure injection
 pnpm gate:k39            # SDK release and compatibility
 pnpm gate:k40            # pilot and go/no-go
-pnpm sdk:check
-pnpm release:rollback-drill
-pnpm db:restore-drill
 ```
 
 ## Repository map
 
 ```text
 apps/
-  api/                    Versioned HTTP API, tenant scopes, sessions, signed webhooks
-  web/                    Stacks Capital application, ten screens
-  worker/                 Ingestion, projections, reconciliation, confirmations, health
-  e2e/                    Playwright journeys and accessibility scans
-  partner-example/        External partner integration, public packages only
+  api/                    Versioned HTTP API, earn options, quotes, workflows
+  web/                    Stacks Capital application
+  landing/                Public product site
+  worker/                 Ingestion, projections, reconciliation
+  e2e/                    Playwright journeys
+  partner-example/        Partner integration on public packages only
   embed-example/          Embedded widget host
 packages/
-  core/                   Money, assets, quotes, plans, workflows, risk, valuation
+  core/                   Money, quotes, plans, workflows, risk
   config/                 Signed capability and deployment registry
-  adapters/               sBTC, Zest, Granite, Bitflow and staking adapters
+  adapters/               sBTC, Zest, Granite, Bitflow, staking
   engine/                 Server-side quote and plan construction
-  database/               Migrations, projections, workflows, ingestion, fixtures
+  database/               Migrations, projections, workflows
   sdk/                    Public SDK surface
-  client/                 Browser client, cache and typed financial errors
-  react/                  Hooks and embedded workflow components
-  ui/                     Shell, canonical states, comparison and simulation
-  wallets/                Leather and Xverse provider integration
-  fixtures/               Recorded mainnet reads for deterministic tests
-scripts/
-  checks/                 Architecture boundaries and adapter certification
-  gates/                  Release gates
-  release/                Rollback drill and release tooling
-docs/                     Architecture, engineering, runbooks, release evidence
+  client/                 Browser client and typed errors
+  react/                  Hooks and embedded components
+  ui/                     Shell, states, earn comparison and simulation
+  wallets/                Leather and Xverse
+  fixtures/               Recorded mainnet reads
+docs/                     Architecture, runbooks, release evidence
 ```
 
 ## Safety status
@@ -189,11 +191,10 @@ docs/                     Architecture, engineering, runbooks, release evidence
 ## Documentation
 
 - [`docs/README.md`](docs/README.md) — index
-- [`docs/guides/quickstart.md`](docs/guides/quickstart.md) — fresh clone to running locally
+- [`docs/guides/quickstart.md`](docs/guides/quickstart.md) — clone to running locally
+- [`docs/engineering/earn-comparison.md`](docs/engineering/earn-comparison.md) — rate comparison rules
 - [`docs/guides/adapter-guide.md`](docs/guides/adapter-guide.md) — adding a protocol or an action
-- [`docs/engineering/signed-registry.md`](docs/engineering/signed-registry.md) — reviewed contracts, signatures, rollback
-- [`docs/engineering/adapter-certification.md`](docs/engineering/adapter-certification.md) — conformance rules
-- [`docs/engineering/workflow-recovery.md`](docs/engineering/workflow-recovery.md) — idempotency, recovery, reconciliation
-- [`docs/reference/api-errors.md`](docs/reference/api-errors.md) — every error code, generated from the code
+- [`docs/engineering/signed-registry.md`](docs/engineering/signed-registry.md) — reviewed contracts
+- [`docs/guides/partner-integration.md`](docs/guides/partner-integration.md) — SDK entry and exit
 - [`docs/release/pilot-checklist.md`](docs/release/pilot-checklist.md) — open blockers
-- [`docs/release/launch-decision.md`](docs/release/launch-decision.md) — the go/no-go record
+- [`docs/release/launch-decision.md`](docs/release/launch-decision.md) — go/no-go record
